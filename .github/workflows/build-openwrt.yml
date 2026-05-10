@@ -1,0 +1,304 @@
+# ============================================================================
+# OpenWrt 官方源码自动化编译系统 v1.0
+# 功能：系统检测 + 依赖安装 + 源码管理 + 智能配置 + 冲突预检 + 汉化 + 编译
+# 适配：TP-LINK XDR6088 / REDMI AX6000
+# 源码：https://github.com/openwrt/openwrt
+# ============================================================================
+name: Builder OpenWrt Official
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: '🎯 选择编译机型'
+        required: true
+        default: 'redmi_ax6000'
+        type: choice
+        options: [redmi_ax6000, tp-link_xdr6088]
+      branch:
+        description: '🌳 选择源码分支'
+        required: true
+        default: 'openwrt-24.10'
+        type: choice
+        options: [main, openwrt-24.10, openwrt-25.12]
+      enable_translate:
+        description: '🔤 启用插件汉化'
+        required: false
+        default: 'true'
+        type: boolean
+      enable_kernel_sync:
+        description: '🔧 强制同步最新内核'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  # 📦 源码配置（官方源）
+  REPO_URL: https://github.com/openwrt/openwrt.git
+  REPO_BRANCH: ${{ github.event.inputs.branch || 'openwrt-24.10' }}
+  
+  # 🎯 设备配置
+  DEVICE: ${{ github.event.inputs.device || 'redmi_ax6000' }}
+  
+  # 🔧 功能开关
+  ENABLE_TRANSLATE: ${{ github.event.inputs.enable_translate || 'true' }}
+  ENABLE_KERNEL_SYNC: ${{ github.event.inputs.enable_kernel_sync || 'false' }}
+  
+  # 📶 WiFi 配置
+  WIFI_PASSWORD: "1234567890"
+  
+  # 🏷️ 输出配置
+  FIRMWARE_RELEASE: true
+  UPLOAD_BIN_DIR: false
+  CACHE_TOOLCHAIN: true
+  TZ: Asia/Shanghai
+  
+  # 📁 路径配置
+  WORK_DIR: ${{ github.workspace }}/openwrt
+  OUTPUT_DIR: ${{ github.workspace }}/output
+  DIY_SCRIPT: ${{ github.workspace }}/diy/diy-openwrt.sh
+
+jobs:
+  Build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      # 🔍 步骤 0: 环境检测
+      - name: 🔍 系统环境检测
+        run: |
+          echo "🖥️ GitHub Actions 服务器信息"
+          echo "• CPU: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2 | xargs)"
+          echo "• 核心: $(nproc) | 内存: $(free -h | grep Mem | awk '{print $2}')"
+          echo "• 磁盘: $(df -h / | tail -1 | awk '{print $2" (可用 "$4")"}')"
+          echo "📋 编译参数: 机型=${{ env.DEVICE }} 分支=${{ env.REPO_BRANCH }}"
+          df -h
+
+      # 🛠️ 步骤 1: 初始化编译环境
+      - name: 🛠️ 初始化编译环境
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt -yqq update
+          sudo -E apt -yqq install -y \
+            ack antlr3 asciidoc autoconf automake autopoint \
+            binutils bison build-essential bzip2 ccache cmake cpio curl \
+            device-tree-compiler fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gperf haveged help2man intltool libc6-dev-i386 \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev \
+            libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip \
+            p7zip-full patch pkgconf python2.7 python3 python3-pip \
+            libpython3-dev qemu-utils rsync scons squashfs-tools subversion \
+            swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+          sudo -E systemctl daemon-reload
+          sudo -E timedatectl set-timezone "Asia/Shanghai"
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'noreply@github.com'
+          df -h
+
+      # 💾 步骤 2: 最大化磁盘空间
+      - name: 💾 合并磁盘空间
+        uses: easimon/maximize-build-space@master
+        with:
+          swap-size-mb: 2048
+          temp-reserve-mb: 200
+          root-reserve-mb: 2048
+
+      # 🔍 步骤 3: 检出仓库代码
+      - name: 🔍 检出仓库代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 📥 步骤 4: 克隆 OpenWrt 官方源码
+      - name: 📥 克隆 OpenWrt 官方源码
+        run: |
+          echo "📦 克隆源码: ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }}"
+          git clone --single-branch ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} ${{ env.WORK_DIR }}
+          cd ${{ env.WORK_DIR }}
+          echo "COMPILE_DATE=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "FIRMWARE_TAG=$(date +"%Y%m%d")" >> $GITHUB_ENV
+          echo "OPENWRT_PATH=${{ env.WORK_DIR }}" >> $GITHUB_ENV
+          
+          # 📋 提取设备目标
+          CONFIG_PATH="${{ github.workspace }}/config/${{ env.DEVICE }}.config"
+          if [ -f "$CONFIG_PATH" ]; then
+            echo "DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD' "$CONFIG_PATH" | cut -d'"' -f2)" >> $GITHUB_ENV
+            echo "DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET' "$CONFIG_PATH" | cut -d'"' -f2)" >> $GITHUB_ENV
+          fi
+
+      # 💾 步骤 5: 缓存工具链
+      - name: 💾 缓存工具链
+        if: env.CACHE_TOOLCHAIN == 'true'
+        uses: HiGarfield/cachewrtbuild@main
+        with:
+          ccache: true
+          mixkey: openwrt-${{ env.REPO_BRANCH }}-${{ env.DEVICE }}
+          prefix: ${{ env.WORK_DIR }}
+
+      # 📁 步骤 6: 复制预配置文件
+      - name: 📁 复制预配置文件到源码
+        run: |
+          echo "📁 处理预配置文件..."
+          FILES_SRC="${{ github.workspace }}/diy/files"
+          FILES_DST="${{ env.WORK_DIR }}/package/base-files/files"
+          
+          if [ -d "$FILES_SRC" ]; then
+            echo "[✓] 找到预配置目录: $FILES_SRC"
+            mkdir -p "$FILES_DST"
+            cp -rf "$FILES_SRC"/. "$FILES_DST/" 2>/dev/null || true
+            echo "[✓] 预配置文件已复制"
+            find "$FILES_DST" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+          else
+            echo "[!] diy/files 目录不存在，跳过预配置"
+          fi
+
+      # 🔧 步骤 7: 执行自定义配置脚本
+      - name: 🔧 执行自定义配置脚本
+        run: |
+          cd ${{ env.WORK_DIR }}
+          
+          SCRIPT_PATH="${{ env.DIY_SCRIPT }}"
+          if [ ! -f "$SCRIPT_PATH" ]; then
+            echo "❌ 致命错误：找不到脚本 $SCRIPT_PATH"
+            exit 1
+          fi
+          
+          chmod +x "$SCRIPT_PATH"
+          
+          # 📋 传递环境变量
+          export DEVICE="${{ env.DEVICE }}"
+          export ENABLE_TRANSLATE="${{ env.ENABLE_TRANSLATE }}"
+          export ENABLE_KERNEL_SYNC="${{ env.ENABLE_KERNEL_SYNC }}"
+          export WIFI_PASSWORD="${{ env.WIFI_PASSWORD }}"
+          export GITHUB_WORKSPACE="${{ github.workspace }}"
+          export GITHUB_REPOSITORY="${{ github.repository }}"
+          export SCRIPTS_DIR="${{ github.workspace }}/diy/scripts"
+          export FILES_DIR="${{ github.workspace }}/diy/files"
+          
+          # 📶 根据机型设置前缀
+          case "$DEVICE" in
+            tp-link_xdr6088) export WIFI_PREFIX="TP-LINK_"; export DEVICE_NAME="TP-LINK XDR6088" ;;
+            redmi_ax6000)    export WIFI_PREFIX="Redmi_";  export DEVICE_NAME="Redmi AX6000" ;;
+            *)               export WIFI_PREFIX="OpenWrt_"; export DEVICE_NAME="OpenWrt" ;;
+          esac
+          
+          echo "🚀 开始执行 diy-openwrt.sh ..."
+          "$SCRIPT_PATH"
+          
+          if [ -f ".config" ]; then
+            echo "📋 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
+          fi
+
+      # 📥 步骤 8: 下载软件包
+      - name: 📥 下载软件包
+        run: |
+          cd ${{ env.WORK_DIR }}
+          echo "🔄 执行 make download..."
+          timeout 7200 make download -j8 V=s || {
+            echo "⚠️ 下载超时，清理碎片后重试..."
+            find dl -size -1024c -exec rm -f {} \;
+            make download -j4 V=s
+          }
+          find dl -size -1024c -exec rm -f {} \; 2>/dev/null || true
+
+      # 🏗️ 步骤 9: 编译固件
+      - name: 🏗️ 编译固件
+        id: compile
+        run: |
+          cd ${{ env.WORK_DIR }}
+          mkdir -p "${{ env.OUTPUT_DIR }}"
+          LOG_FILE="${{ env.OUTPUT_DIR }}/build.log"
+          
+          echo "=========================================="
+          echo "🏗️  OpenWrt 编译开始"
+          echo "=========================================="
+          echo "📅 时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "💻 设备: ${{ env.DEVICE }}"
+          echo "🌳 分支: ${{ env.REPO_BRANCH }}"
+          echo "=========================================="
+          
+          START_TIME=$(date +%s)
+          
+          # 🔄 执行编译
+          make -j$(nproc) V=s 2>&1 | tee -a "$LOG_FILE"
+          MAKE_EXIT=${PIPESTATUS[0]}
+          
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          
+          echo ""
+          echo "=========================================="
+          echo "📊 编译结果检查"
+          echo "=========================================="
+          echo "⏱️  总耗时: $((DURATION/3600))h $((DURATION%3600/60))m $((DURATION%60))s"
+          
+          FIRMWARE_COUNT=$(find bin/targets -name "*.bin" -type f 2>/dev/null | wc -l)
+          echo "📦 找到固件文件数量: $FIRMWARE_COUNT"
+          
+          if [ "$MAKE_EXIT" -eq 0 ] && [ "$FIRMWARE_COUNT" -gt 0 ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "✅ 编译成功！"
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ 编译失败"
+            exit 1
+          fi
+
+      # 🗂️ 步骤 10: 整理固件文件
+      - name: 🗂️ 整理固件文件
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd ${{ env.WORK_DIR }}
+          
+          FIRMWARE_PATH=$(find bin/targets -name "*sysupgrade.bin" -type f 2>/dev/null | head -1)
+          if [ -z "$FIRMWARE_PATH" ]; then
+            echo "❌ 错误：未找到 sysupgrade.bin"
+            exit 1
+          fi
+          
+          echo "✅ 找到固件: $FIRMWARE_PATH"
+          
+          mkdir -p ${{ env.OUTPUT_DIR }}
+          
+          # 🔧 重命名固件
+          FIRMWARE_BASE=$(basename "$FIRMWARE_PATH" .bin)
+          NEW_NAME="OpenWrt-${{ env.DEVICE }}-$(date +"%Y%m%d")-${FIRMWARE_BASE#*-}.bin"
+          
+          cp "$FIRMWARE_PATH" "${{ env.OUTPUT_DIR }}/$NEW_NAME"
+          echo "FIRMWARE_NAME=$NEW_NAME" >> $GITHUB_ENV
+          
+          # 📋 生成校验和
+          sha256sum "${{ env.OUTPUT_DIR }}"/*.bin > "${{ env.OUTPUT_DIR }}/sha256sums.txt"
+          cat "${{ env.OUTPUT_DIR }}/sha256sums.txt"
+          
+          # 💾 备份配置
+          cp ${{ env.WORK_DIR }}/.config "${{ env.OUTPUT_DIR }}/build.config"
+          
+          echo "FIRMWARE_PATH=${{ env.OUTPUT_DIR }}" >> $GITHUB_ENV
+
+      # 🚀 步骤 11: 发布 Release
+      - name: 🚀 发布固件到 Release
+        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
+        uses: ncipollo/release-action@v1
+        with:
+          name: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
+          tag: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: |
+            ${{ env.OUTPUT_DIR }}/*.bin
+            ${{ env.OUTPUT_DIR }}/sha256sums.txt
+            ${{ env.OUTPUT_DIR }}/build.config
+          body: |
+            ### 📒 固件信息
+            | 项目 | 值 |
+            |------|-----|
+            | 💻 平台 | ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }} |
+            | 📂 源码 | [openwrt/openwrt](https://github.com/openwrt/openwrt) |
+            | 🌳 分支 | ${{ env.REPO_BRANCH }} |
+            | 🕐 编译时间 | ${{ env.COMPILE_DATE }} |
+            
+            ### 🔧 默认配置
+            - 🌐 管理地址: `192.168.1.1`
+            - 👤 用户名: `root`
+            - 🔒 密码: **首次登录强制修改**
+            - 📶 WiFi: 前缀`${{ env.DEVICE == 'tp-link_xdr6088' && 'TP-LINK_' || 'Redmi_' }}` + MAC_2G/5G
