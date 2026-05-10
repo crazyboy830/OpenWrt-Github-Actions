@@ -15,5 +15,5 @@ OpenWrt 官方定制固件 | 编译: 2026
   • 插件管理:    opkg list-installed | grep luci
 🌐 在线资源:
   • 官方文档:    https://openwrt.org
-  • 问题反馈:    https://github.com/your-repo/issues
+  • 问题反馈:    https://github.com/CN2015/OpenWrt-Github-Actions/wiki
 -----------------------------------------------------
