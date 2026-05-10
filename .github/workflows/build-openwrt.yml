@@ -17,7 +17,7 @@ on:
       branch:
         description: '🌳 选择源码分支'
         required: true
-        default: 'openwrt-24.10'
+        default: 'main'
         type: choice
         options: [main, openwrt-24.10, openwrt-25.12]
       enable_translate:
