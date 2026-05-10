@@ -1,0 +1,28 @@
+# Build directories
+bin/
+build_dir/
+dl/
+staging_dir/
+tmp/
+
+# Configuration files
+.config
+.config.old
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.backup
