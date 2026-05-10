@@ -1,0 +1,46 @@
+# /etc/config/network - OpenWrt 网络配置文件
+# 适用于: TP-LINK XDR6088 / REDMI AX6000
+
+config interface 'loopback'
+    option device 'lo'
+    option proto 'static'
+    option ipaddr '127.0.0.1'
+    option netmask '255.0.0.0'
+
+config globals 'globals'
+    option ula_prefix 'auto'
+    option packet_steering '1'
+
+config interface 'lan'
+    option device 'br-lan'
+    option proto 'static'
+    option ipaddr '192.168.1.1'
+    option netmask '255.255.255.0'
+    option ip6assign '60'
+    option delegate '0'
+    list dhcp_option '6,192.168.1.1'
+    list dhcp_option '15,openwrt.lan'
+    option dns '192.168.1.1'
+    option ignore '0'
+
+config interface 'wan'
+    option device 'eth0'
+    option proto 'dhcp'
+    option metric '10'
+    option reqprefix 'auto'
+    option ip6assign '60'
+
+config interface 'wan6'
+    option device 'eth0'
+    option proto 'dhcpv6'
+    option reqprefix 'auto'
+    option ip6assign '60'
+
+config device
+    option name 'br-lan'
+    option type 'bridge'
+    list ports 'eth1'
+    list ports 'wlan0'
+    list ports 'wlan1'
+    option stp '0'
+    option forward_delay '0'
