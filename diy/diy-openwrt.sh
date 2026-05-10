@@ -12,10 +12,8 @@ DEVICE_NAME="${DEVICE_NAME:-OpenWrt}"
 WIFI_PREFIX="${WIFI_PREFIX:-OpenWrt_}"
 WIFI_PASSWORD="${WIFI_PASSWORD:-1234567890}"
 ENABLE_TRANSLATE="${ENABLE_TRANSLATE:-true}"
-ENABLE_KERNEL_SYNC="${ENABLE_KERNEL_SYNC:-false}"
+REPO_BRANCH="${REPO_BRANCH:-openwrt-24.10}"
 OPENWRT_PATH="${OPENWRT_PATH:-$PWD}"
-GITHUB_WORKSPACE="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.."; pwd)}"
-SCRIPTS_DIR="${SCRIPTS_DIR:-$GITHUB_WORKSPACE/diy/scripts}"
 
 cd "$OPENWRT_PATH"
 
@@ -25,14 +23,21 @@ log_warn() { echo -e "\033[1;33m[!]\033[0m $1"; }
 log_error() { echo -e "\033[0;31m[✗]\033[0m $1"; }
 
 # ============================================================================
-# 🔧 模块 1: 配置 feeds（仅添加 small-package）
+# 🔧 模块 1: 配置 feeds（✅ 修复格式错误）
 # ============================================================================
 configure_feeds() {
   log_info "📡 配置插件源..."
   
-  # ✅ 只添加 small-package 源
-  grep -q "^src-git small-package" feeds.conf.default 2>/dev/null || \
-    echo "src-git small-package https://github.com/kenzok8/small-package;main" >> feeds.conf.default
+  # ✅ 重写 feeds.conf.default（确保格式正确）
+  cat > feeds.conf.default << 'EOF'
+src-git packages https://git.openwrt.org/feed/packages.git^openwrt-24.10
+src-git luci https://git.openwrt.org/project/luci.git^openwrt-24.10
+src-git routing https://git.openwrt.org/feed/routing.git^openwrt-24.10
+src-git telephony https://git.openwrt.org/feed/telephony.git^openwrt-24.10
+src-git small-package https://github.com/kenzok8/small-package;main
+EOF
+  
+  log_info "✓ feeds.conf.default 已更新"
   
   # 🔄 更新并安装 feeds
   ./scripts/feeds update -a 2>&1 | tail -5
@@ -45,11 +50,8 @@ configure_feeds() {
 # 🔧 模块 2: 内核版本选择（根据分支自动适配）
 # ============================================================================
 select_kernel() {
-  [ "$ENABLE_KERNEL_SYNC" != "true" ] && return 0
-  
   log_info "🔧 配置内核版本..."
   
-  # 📋 根据分支选择内核
   case "${REPO_BRANCH}" in
     main)
       log_info "  📦 主线分支，使用默认内核"
@@ -78,9 +80,6 @@ apply_base() {
   
   # 🏷️ 修改主机名
   sed -i "s/OpenWrt/${DEVICE_NAME}/g" package/base-files/files/bin/config_generate 2>/dev/null || true
-  
-  # 🌐 修改默认管理地址（可选）
-  # sed -i 's/192.168.1.1/192.168.10.1/' package/base-files/files/bin/config_generate
   
   log_info "✓ 基础配置完成"
 }
@@ -179,12 +178,6 @@ apply_translate() {
 resolve_conflicts() {
   log_info "⚔️ 冲突预检..."
   [ ! -f ".config" ] && return 0
-  
-  # 处理 vsftpd 冲突
-  if grep -q "vsftpd-alt" .config 2>/dev/null; then
-    sed -i 's/^CONFIG_PACKAGE_vsftpd=[ym]/# &/' .config 2>/dev/null || true
-    sed -i 's/^CONFIG_PACKAGE_luci-app-vsftpd=[ym]/# &/' .config 2>/dev/null || true
-  fi
   
   # 处理 dnsmasq 冲突
   if grep -q "dnsmasq-full" .config 2>/dev/null && grep -q "^CONFIG_PACKAGE_dnsmasq=[ym]" .config 2>/dev/null; then
