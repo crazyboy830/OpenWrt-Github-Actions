@@ -68,7 +68,7 @@ env:
   # 📁 路径配置（统一使用 github.workspace 确保绝对路径稳定）
   WORK_DIR: ${{ github.workspace }}/openwrt
   OUTPUT_DIR: ${{ github.workspace }}/output
-  DIY_SCRIPT: ${{ github.workspace }}/diy/diy-lede.sh
+  DIY_SCRIPT: ${{ github.workspace }}/diy/diy-openwrt.sh
 
 jobs:
   Build:
