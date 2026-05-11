@@ -5,7 +5,6 @@
 # 源码：openwrt/openwrt (官方版) + kenzok8/small-package
 # 核心修复：✅ vsftpd 冲突强制拦截 ✅ 缓存深度清理 ✅ 依赖重载 ✅ 编译失败自动重试
 # ============================================================================
-
 name: Builder OpenWrt Multi-Device
 
 on:
@@ -76,606 +75,596 @@ jobs:
     timeout-minutes: 360
     
     steps:
-    # 🔍 步骤 0: 环境检测
-    - name: 🔍 系统环境检测
-      run: |
-        echo "🖥️ GitHub Actions 服务器信息"
-        echo "• CPU: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2 | xargs)"
-        echo "• 核心: $(nproc) | 内存: $(free -h | grep Mem | awk '{print $2}')"
-        echo "• 磁盘: $(df -h / | tail -1 | awk '{print $2" (可用 "$4")"}')"
-        echo "📋 编译参数: 机型=${{ env.DEVICE }} 配置=${{ env.CONFIG_VERSION }}"
-        df -h
-
-    # 🛠️ 步骤 1: 初始化编译环境
-    - name: 🛠️ 初始化编译环境
-      env:
-        DEBIAN_FRONTEND: noninteractive
-      run: |
-        # 🧹 清理无用包释放空间
-        sudo -E apt -yqq purge firefox
-        sudo -E apt -yqq update
-        sudo -E apt -yqq full-upgrade
-        sudo -E apt -yqq autoremove --purge
-        sudo -E apt -yqq autoclean
-        sudo -E apt -yqq clean
-        
-        # 📦 安装额外依赖
-        sudo -E apt -yqq install dos2unix python3-netifaces libfuse-dev
-        
-        # 🌐 使用 immortalwrt 初始化脚本（兼容官方 OpenWrt）
-        sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
-        
-        # 🔄 重载系统服务 + 设置时区
-        sudo -E systemctl daemon-reload
-        sudo -E timedatectl set-timezone "Asia/Shanghai"
-        
-        # 👤 配置 Git 用户信息
-        git config --global user.name 'GitHub Actions'
-        git config --global user.email 'noreply@github.com'
-        
-        # 💾 显示磁盘空间
-        df -h
-
-    # 💾 步骤 2: 最大化磁盘空间
-    - name: 💾 合并磁盘空间
-      uses: easimon/maximize-build-space@master
-      with:
-        swap-size-mb: 2048
-        temp-reserve-mb: 200
-        root-reserve-mb: 2048
-
-    # 🔍 步骤 3: 检出仓库代码
-    - name: 🔍 检出仓库代码
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    # 📥 步骤 4: 克隆 OpenWrt 源码
-    - name: 📥 克隆 OpenWrt 源码
-      run: |
-        echo "📦 克隆官方源码: ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }}"
-        git clone --single-branch ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} ${{ env.WORK_DIR }}
-        cd ${{ env.WORK_DIR }}
-        echo "COMPILE_DATE=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
-        echo "FIRMWARE_TAG=$(date +"%Y%m%d")" >> $GITHUB_ENV
-        echo "OPENWRT_PATH=${{ env.WORK_DIR }}" >> $GITHUB_ENV
-        
-        # 📋 提取设备目标（使用绝对路径安全读取）
-        CONFIG_PATH="${{ github.workspace }}/config/${{ env.DEVICE }}-${{ env.CONFIG_VERSION }}.config"
-        if [ -f "$CONFIG_PATH" ]; then
-          echo "DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD' "$CONFIG_PATH" | cut -d'"' -f2)" >> $GITHUB_ENV
-          echo "DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET' "$CONFIG_PATH" | cut -d'"' -f2)" >> $GITHUB_ENV
-        fi
-
-    # 💾 步骤 5: 缓存工具链
-    - name: 💾 缓存工具链
-      if: env.CACHE_TOOLCHAIN == 'true'
-      uses: HiGarfield/cachewrtbuild@main
-      with:
-        ccache: true
-        mixkey: openwrt-${{ env.REPO_BRANCH }}-${{ env.DEVICE }}-${{ env.CONFIG_VERSION }}
-        prefix: ${{ env.WORK_DIR }}
-
-    # ⚙️ 强制应用配置并校验
-    - name: ⚙️ Apply & Verify Configuration
-      run: |
-        cd ${{ env.WORK_DIR }}
-        
-        # 1. 定位并复制配置文件
-        CONFIG_SRC="${{ github.workspace }}/config/${{ env.DEVICE }}-${{ env.CONFIG_VERSION }}.config"
-        echo "📋 正在应用配置文件: $CONFIG_SRC"
-        
-        if [ ! -f "$CONFIG_SRC" ]; then
-          echo "❌ 错误：找不到配置文件 $CONFIG_SRC"
-          ls -la "${{ github.workspace }}/config/" || echo "目录不存在"
-          exit 1
-        fi
-        
-        cp -f "$CONFIG_SRC" .config
-        
-        # 2. 执行 defconfig 解析依赖
-        echo "🔄 正在解析配置依赖 (make defconfig)..."
-        make defconfig 2>&1 | tail -5
-        
-        # 3. 强制校验目标平台
-        echo ""
-        echo "🔍 正在校验编译平台..."
-        TARGET_BOARD=$(grep '^CONFIG_TARGET_BOARD' .config | cut -d'"' -f2)
-        TARGET_SUB=$(grep '^CONFIG_TARGET_SUBTARGET' .config | cut -d'"' -f2)
-        TARGET_PROFILE=$(grep '^CONFIG_TARGET_PROFILE' .config | cut -d'"' -f2)
-        
-        echo "   📡 平台架构: $TARGET_BOARD / $TARGET_SUB"
-        echo "   📦 设备型号: $TARGET_PROFILE"
-        echo "   📊 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
-        
-        if [ "$TARGET_BOARD" != "mediatek" ]; then
-          echo "⚠️  警告：当前配置平台为 [$TARGET_BOARD]，非预期的 mediatek！"
-          echo "📋 请检查您的配置文件内容是否正确选择了 Target System 和 Subtarget。"
-        fi
-        
-        echo "✅ 配置应用与校验完成。"
-
-    # 📁 步骤 5.5: 复制预配置文件到源码
-    - name: 📁 复制预配置文件到源码
-      run: |
-        echo "📁 处理预配置文件..."
-        
-        log_info() { echo "[✓] $1"; }
-        log_warn() { echo "[!] $1"; }
-        
-        FILES_SRC="${{ github.workspace }}/diy/files"
-        FILES_DST="${{ env.WORK_DIR }}/package/base-files/files"
-        
-        if [ -d "$FILES_SRC" ]; then
-          log_info "找到预配置目录: $FILES_SRC"
-          mkdir -p "$FILES_DST"
-          cp -rf "$FILES_SRC"/. "$FILES_DST/" 2>/dev/null || true
-          log_info "预配置文件已复制"
+      # 🔍 步骤 0: 环境检测
+      - name: 🔍 系统环境检测
+        run: |
+          echo "🖥️ GitHub Actions 服务器信息"
+          echo "• CPU: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2 | xargs)"
+          echo "• 核心: $(nproc) | 内存: $(free -h | grep Mem | awk '{print $2}')"
+          echo "• 磁盘: $(df -h / | tail -1 | awk '{print $2" (可用 "$4")"}')"
+          echo "📋 编译参数: 机型=${{ env.DEVICE }} 配置=${{ env.CONFIG_VERSION }}"
+          df -h
+      
+      # 🛠️ 步骤 1: 初始化编译环境
+      - name: 🛠️ 初始化编译环境
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          # 🧹 清理无用包释放空间
+          sudo -E apt -yqq purge firefox
+          sudo -E apt -yqq update
+          sudo -E apt -yqq full-upgrade
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq autoclean
+          sudo -E apt -yqq clean
           
-          find "$FILES_DST" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+          # 📦 安装额外依赖
+          sudo -E apt -yqq install dos2unix python3-netifaces libfuse-dev
           
-          FIX_WIFI="$FILES_DST/usr/bin/fix-wifi.sh"
-          if [ -f "$FIX_WIFI" ]; then
-            RC_LOCAL="$FILES_DST/etc/rc.local"
-            if [ -f "$RC_LOCAL" ] && ! grep -q "fix-wifi" "$RC_LOCAL"; then
-              sed -i '/^exit 0/i\/usr/bin/fix-wifi.sh \&' "$RC_LOCAL"
-              log_info "已注册 fix-wifi.sh 到 rc.local"
-            elif [ ! -f "$RC_LOCAL" ]; then
-              printf '#!/bin/sh\n[ -f /etc/.wifi_customized ] || /usr/bin/fix-wifi.sh &\nexit 0\n' > "$RC_LOCAL"
-              chmod +x "$RC_LOCAL"
-              log_info "已创建 rc.local 并注册 fix-wifi.sh"
+          # 🌐 使用 immortalwrt 初始化脚本（兼容官方 OpenWrt）
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          
+          # 🔄 重载系统服务 + 设置时区
+          sudo -E systemctl daemon-reload
+          sudo -E timedatectl set-timezone "Asia/Shanghai"
+          
+          # 👤 配置 Git 用户信息
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'noreply@github.com'
+          
+          # 💾 显示磁盘空间
+          df -h
+      
+      # 💾 步骤 2: 最大化磁盘空间
+      - name: 💾 合并磁盘空间
+        uses: easimon/maximize-build-space@master
+        with:
+          swap-size-mb: 2048
+          temp-reserve-mb: 200
+          root-reserve-mb: 2048
+      
+      # 🔍 步骤 3: 检出仓库代码
+      - name: 🔍 检出仓库代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      # 📥 步骤 4: 克隆 OpenWrt 源码
+      - name: 📥 克隆 OpenWrt 源码
+        run: |
+          echo "📦 克隆官方源码: ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }}"
+          git clone --single-branch ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} ${{ env.WORK_DIR }}
+          
+          cd ${{ env.WORK_DIR }}
+          echo "COMPILE_DATE=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "FIRMWARE_TAG=$(date +"%Y%m%d")" >> $GITHUB_ENV
+          echo "OPENWRT_PATH=${{ env.WORK_DIR }}" >> $GITHUB_ENV
+          
+          # 📋 提取设备目标（使用绝对路径安全读取）
+          CONFIG_PATH="${{ github.workspace }}/config/${{ env.DEVICE }}-${{ env.CONFIG_VERSION }}.config"
+          if [ -f "$CONFIG_PATH" ]; then
+            echo "DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD' "$CONFIG_PATH" | cut -d'"' -f2)" >> $GITHUB_ENV
+            echo "DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET' "$CONFIG_PATH" | cut -d'"' -f2)" >> $GITHUB_ENV
+          fi
+      
+      # 💾 步骤 5: 缓存工具链
+      - name: 💾 缓存工具链
+        if: env.CACHE_TOOLCHAIN == 'true'
+        uses: HiGarfield/cachewrtbuild@main
+        with:
+          ccache: true
+          mixkey: openwrt-${{ env.REPO_BRANCH }}-${{ env.DEVICE }}-${{ env.CONFIG_VERSION }}
+          prefix: ${{ env.WORK_DIR }}
+      
+      # ⚙️ 强制应用配置并校验
+      - name: ⚙️ Apply & Verify Configuration
+        run: |
+          cd ${{ env.WORK_DIR }}
+          
+          # 1. 定位并复制配置文件
+          CONFIG_SRC="${{ github.workspace }}/config/${{ env.DEVICE }}-${{ env.CONFIG_VERSION }}.config"
+          echo "📋 正在应用配置文件: $CONFIG_SRC"
+          if [ ! -f "$CONFIG_SRC" ]; then
+            echo "❌ 错误：找不到配置文件 $CONFIG_SRC"
+            ls -la "${{ github.workspace }}/config/" || echo "目录不存在"
+            exit 1
+          fi
+          cp -f "$CONFIG_SRC" .config
+          
+          # 2. 执行 defconfig 解析依赖
+          echo "🔄 正在解析配置依赖 (make defconfig)..."
+          make defconfig 2>&1 | tail -5
+          
+          # 3. 强制校验目标平台
+          echo ""
+          echo "🔍 正在校验编译平台..."
+          TARGET_BOARD=$(grep '^CONFIG_TARGET_BOARD' .config | cut -d'"' -f2)
+          TARGET_SUB=$(grep '^CONFIG_TARGET_SUBTARGET' .config | cut -d'"' -f2)
+          TARGET_PROFILE=$(grep '^CONFIG_TARGET_PROFILE' .config | cut -d'"' -f2)
+          echo "   📡 平台架构: $TARGET_BOARD / $TARGET_SUB"
+          echo "   📦 设备型号: $TARGET_PROFILE"
+          echo "   📊 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
+          
+          if [ "$TARGET_BOARD" != "mediatek" ]; then
+            echo "⚠️  警告：当前配置平台为 [$TARGET_BOARD]，非预期的 mediatek！"
+            echo "📋 请检查您的配置文件内容是否正确选择了 Target System 和 Subtarget。"
+          fi
+          
+          echo "✅ 配置应用与校验完成。"
+      
+      # 📁 步骤 5.5: 复制预配置文件到源码
+      - name: 📁 复制预配置文件到源码
+        run: |
+          echo "📁 处理预配置文件..."
+          
+          log_info() { echo "[✓] $1"; }
+          log_warn() { echo "[!] $1"; }
+          
+          FILES_SRC="${{ github.workspace }}/diy/files"
+          FILES_DST="${{ env.WORK_DIR }}/package/base-files/files"
+          
+          if [ -d "$FILES_SRC" ]; then
+            log_info "找到预配置目录: $FILES_SRC"
+            mkdir -p "$FILES_DST"
+            cp -rf "$FILES_SRC"/. "$FILES_DST/" 2>/dev/null || true
+            log_info "预配置文件已复制"
+            
+            find "$FILES_DST" -type f -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
+            
+            # 🔧 注册 fix-wifi.sh 到 rc.local
+            FIX_WIFI="$FILES_DST/usr/bin/fix-wifi.sh"
+            if [ -f "$FIX_WIFI" ]; then
+              RC_LOCAL="$FILES_DST/etc/rc.local"
+              if [ -f "$RC_LOCAL" ] && ! grep -q "fix-wifi" "$RC_LOCAL"; then
+                sed -i '/^exit 0/i\/usr/bin/fix-wifi.sh \&' "$RC_LOCAL"
+                log_info "已注册 fix-wifi.sh 到 rc.local"
+              elif [ ! -f "$RC_LOCAL" ]; then
+                printf '#!/bin/sh
+          [ -f /etc/.wifi_customized ] || /usr/bin/fix-wifi.sh &
+          exit 0
+          ' > "$RC_LOCAL"
+                chmod +x "$RC_LOCAL"
+                log_info "已创建 rc.local 并注册 fix-wifi.sh"
+              fi
             fi
-          fi
-          
-          BANNER_SRC="$FILES_SRC/etc/banner"
-          BANNER_DST="$FILES_DST/etc/banner"
-          if [ -f "$BANNER_SRC" ]; then
-            DEVICE_NAME="OpenWrt"
-            [ "${{ env.DEVICE }}" = "xdr6088" ] && DEVICE_NAME="TP-LINK XDR6088"
-            [ "${{ env.DEVICE }}" = "ax6000" ] && DEVICE_NAME="Redmi AX6000"
             
-            WIFI_PREFIX="OpenWrt_"
-            [ "${{ env.DEVICE }}" = "xdr6088" ] && WIFI_PREFIX="TP-LINK_"
-            [ "${{ env.DEVICE }}" = "ax6000" ] && WIFI_PREFIX="Redmi_"
-            
-            sed -e "s|{{DEVICE_NAME}}|$DEVICE_NAME|g" \
-                -e "s|{{BUILD_DATE}}|$(date '+%Y-%m-%d')|g" \
-                -e "s|{{WIFI_PREFIX}}|$WIFI_PREFIX|g" \
-                -e "s|{{REPO_URL}}|https://github.com/${{ github.repository }}|g" \
-                "$BANNER_SRC" > "$BANNER_DST"
-            log_info "Banner 已生成"
-          fi
-        else
-          log_warn "diy/files 目录不存在，跳过预配置"
-        fi
-
-    # 🔧 步骤 6: 执行自定义配置脚本
-    - name: 🔧 执行自定义配置脚本
-      run: |
-        # 📁 切换到源码工作目录
-        cd ${{ env.WORK_DIR }}
-        
-        # 🔧 定义脚本绝对路径
-        SCRIPT_PATH="${{ env.DIY_SCRIPT }}"
-        
-        # 🔍 安全检查：确保脚本存在
-        if [ ! -f "$SCRIPT_PATH" ]; then
-          echo "❌ 致命错误：找不到脚本 $SCRIPT_PATH"
-          echo "📋 当前工作区结构:"
-          ls -la "${{ github.workspace }}/"
-          exit 1
-        fi
-        
-        chmod +x "$SCRIPT_PATH"
-        echo "✅ 脚本已定位: $SCRIPT_PATH"
-        
-        # 📋 传递环境变量给脚本
-        export DEVICE="${{ env.DEVICE }}"
-        export CONFIG_VERSION="${{ env.CONFIG_VERSION }}"
-        export ENABLE_TRANSLATE="${{ env.ENABLE_TRANSLATE }}"
-        export ENABLE_KERNEL_SYNC="${{ env.ENABLE_KERNEL_SYNC }}"
-        export SKIP_FEEDS_MODIFY="${{ env.SKIP_FEEDS_MODIFY }}"
-        export WIFI_PASSWORD="${{ env.WIFI_PASSWORD }}"
-        export GITHUB_WORKSPACE="${{ github.workspace }}"
-        export GITHUB_REPOSITORY="${{ github.repository }}"
-        export SCRIPTS_DIR="${{ github.workspace }}/diy/scripts"
-        export FILES_DIR="${{ github.workspace }}/diy/files"
-        
-        # 📶 根据机型动态设置前缀与名称
-        case "$DEVICE" in
-          xdr6088) export WIFI_PREFIX="TP-LINK_"; export DEVICE_NAME="TP-LINK XDR6088" ;;
-          ax6000)  export WIFI_PREFIX="Redmi_";  export DEVICE_NAME="Redmi AX6000" ;;
-          *)       export WIFI_PREFIX="OpenWrt_"; export DEVICE_NAME="OpenWrt" ;;
-        esac
-        
-        # 🚀 执行自定义脚本
-        echo "🚀 开始执行 diy-openwrt.sh ..."
-        "$SCRIPT_PATH"
-        
-        # ✅ 验证配置生成结果
-        if [ -f ".config" ]; then
-          echo "📋 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
-        else
-          echo "⚠️  警告：脚本执行后未生成 .config 文件"
-        fi
-
-    # 🔧 步骤 6.5: 强制解决包冲突 + 清理缓存 (Error 255 拦截)
-    - name: 🔧 强制解决包冲突 + 清理缓存
-      run: |
-        cd ${{ env.WORK_DIR }}
-        
-        echo "=========================================="
-        echo "🔧 执行包冲突预检与缓存清理"
-        echo "=========================================="
-        
-        # 📦 1. vsftpd 冲突拦截（高频报错源）
-        if grep -qE "^CONFIG_PACKAGE_vsftpd-alt=[ym]" .config; then
-          echo "🔧 检测到 vsftpd-alt，正在禁用冲突包..."
-          sed -i 's/^CONFIG_PACKAGE_vsftpd=[ym]/# CONFIG_PACKAGE_vsftpd is not set/' .config
-          sed -i 's/^CONFIG_PACKAGE_luci-app-vsftpd=[ym]/# CONFIG_PACKAGE_luci-app-vsftpd is not set/' .config
-          sed -i 's/^CONFIG_PACKAGE_luci-i18n-vsftpd-zh-cn=[ym]/# CONFIG_PACKAGE_luci-i18n-vsftpd-zh-cn is not set/' .config
-          echo "✅ 已切断 vsftpd 冲突依赖链"
-        fi
-        
-        # 📦 2. 其他常见冲突对拦截
-        echo "🔍 扫描其他潜在冲突..."
-        
-        # dnsmasq 基础版 vs 完整版
-        if grep -qE "^CONFIG_PACKAGE_dnsmasq-full=[ym]" .config && grep -qE "^CONFIG_PACKAGE_dnsmasq=[ym]" .config; then
-          echo "⚠️  发现 dnsmasq 冲突，禁用基础版..."
-          sed -i 's/^CONFIG_PACKAGE_dnsmasq=[ym]/# CONFIG_PACKAGE_dnsmasq is not set/' .config
-        fi
-        
-        # firewall3 vs firewall4
-        if grep -qE "^CONFIG_PACKAGE_firewall4=[ym]" .config && grep -qE "^CONFIG_PACKAGE_firewall=[ym]" .config; then
-          echo "⚠️  发现 firewall 冲突，禁用旧版..."
-          sed -i 's/^CONFIG_PACKAGE_firewall=[ym]/# CONFIG_PACKAGE_firewall is not set/' .config
-        fi
-        
-        # libustream SSL 后端冲突
-        SSL_BACKENDS=$(grep -E "^CONFIG_PACKAGE_libustream-(mbedtls|openssl|wolfssl)=[ym]" .config | wc -l)
-        if [ "$SSL_BACKENDS" -gt 1 ]; then
-          echo "⚠️  发现 libustream 多后端冲突，保留 openssl..."
-          sed -i 's/^CONFIG_PACKAGE_libustream-mbedtls=[ym]/# CONFIG_PACKAGE_libustream-mbedtls is not set/' .config
-          sed -i 's/^CONFIG_PACKAGE_libustream-wolfssl=[ym]/# CONFIG_PACKAGE_libustream-wolfssl is not set/' .config
-        fi
-        
-        # 🧹 3. 深度清理 opkg 打包缓存（关键！）
-        echo "🧹 清理 opkg 打包缓存与临时索引..."
-        
-        # 获取目标架构（使用绝对路径安全读取）
-        ARCH=$(grep '^CONFIG_TARGET_ARCH_PACKAGES' .config | cut -d'"' -f2)
-        if [ -n "$ARCH" ]; then
-          rm -rf "${{ env.WORK_DIR }}/staging_dir/target-${ARCH}/root-"* 2>/dev/null || true
-          echo "✅ 已清理: staging_dir/target-${ARCH}/root-*"
-        else
-          rm -rf "${{ env.WORK_DIR }}/staging_dir/target-*/root-"* 2>/dev/null || true
-          echo "✅ 已清理: staging_dir/target-*/root-* (通配符)"
-        fi
-        
-        # 清理临时依赖索引
-        rm -rf "${{ env.WORK_DIR }}/tmp/.packageinfo" "${{ env.WORK_DIR }}/tmp/.targetinfo" "${{ env.WORK_DIR }}/tmp/.packageinfo-"* 2>/dev/null || true
-        echo "✅ 已清理: tmp/.packageinfo*"
-        
-        # 🔄 4. 重载依赖树
-        echo "🔄 重载依赖树 (make defconfig)..."
-        make defconfig >/dev/null 2>&1
-        
-        # 📊 5. 验证修复结果
-        echo ""
-        echo "📋 修复后配置摘要:"
-        echo "   • 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
-        echo "   • vsftpd-alt: $(grep -c '^CONFIG_PACKAGE_vsftpd-alt=y' .config || echo 0) 个"
-        echo "   • dnsmasq-full: $(grep -c '^CONFIG_PACKAGE_dnsmasq-full=y' .config || echo 0) 个"
-        
-        echo ""
-        echo "✅ 冲突预检与缓存清理完成！"
-        echo "=========================================="
-
-    # 📥 步骤 7: 下载软件包
-    - name: 📥 下载软件包
-      run: |
-        cd ${{ env.WORK_DIR }}
-        echo "🔄 执行 make download..."
-        timeout 7200 make download -j8 V=s || {
-          echo "⚠️ 下载超时，清理碎片后重试..."
-          find dl -size -1024c -exec rm -f {} \;
-          make download -j4 V=s
-        }
-        find dl -size -1024c -exec rm -f {} \; 2>/dev/null || true
-
-    # 🏗️ 步骤 8: 编译固件（📊 增强日志版 + 自动重试）
-    - name: 🏗️ 编译固件
-      id: compile
-      run: |
-        cd ${{ env.WORK_DIR }}
-        mkdir -p "${{ env.OUTPUT_DIR }}"
-        LOG_FILE="${{ env.OUTPUT_DIR }}/build.log"
-        
-        echo "=========================================="
-        echo "🏗️  OpenWrt 编译开始"
-        echo "=========================================="
-        echo "📅 时间: $(date '+%Y-%m-%d %H:%M:%S')"
-        echo "💻 设备: ${{ env.DEVICE }}"
-        echo "🔧 线程: $(nproc)"
-        echo "📁 工作目录: $(pwd)"
-        echo "=========================================="
-        
-        START_TIME=$(date +%s)
-        
-        # 📋 检查 .config 文件
-        echo ""
-        echo "🔍 检查配置文件..."
-        if [ ! -f ".config" ]; then
-          echo "❌ 错误：.config 文件不存在"
-          exit 1
-        fi
-        
-        # 📊 显示配置摘要
-        echo "📋 已选插件数量: $(grep -c '^CONFIG_PACKAGE_.*=y' .config)"
-        echo "📋 目标平台: $(grep '^CONFIG_TARGET_BOARD' .config | cut -d'"' -f2)"
-        echo ""
-        
-        # 🔄 执行编译（带详细日志）
-        echo "🚀 开始编译（详细日志将保存到 $LOG_FILE）..."
-        echo "=========================================="
-        
-        # 阶段 1: 编译（实时显示关键信息）
-        {
-          echo ""
-          echo "=== 阶段 1/2: 编译固件 ==="
-          echo "开始时间: $(date '+%H:%M:%S')"
-          echo ""
-          
-          make -j$(nproc) V=s 2>&1 | tee -a "$LOG_FILE" | \
-          grep -E "(ERROR|error:|Leaving directory|Building|Package|Time:|real|m)" | tail -100
-          
-        } || {
-          echo ""
-          echo "❌ 编译失败！检查日志..."
-        }
-        
-        MAKE_EXIT=${PIPESTATUS[0]}
-        
-        # 📊 编译结果检查
-        echo ""
-        echo "=========================================="
-        echo "📊 编译结果检查"
-        echo "=========================================="
-        
-        if [ "$MAKE_EXIT" -ne 0 ]; then
-          echo "⚠️  编译退出码: $MAKE_EXIT"
-          echo ""
-          
-          # 🔍 尝试智能修复
-          if grep -q "Error 255\|check_data_file_clashes\|opkg_install_cmd.*Cannot install" "$LOG_FILE"; then
-            echo "🔧 检测到包冲突，尝试自动解决..."
-            
-            CONFLICT_PKG=$(grep -oP "check_data_file_clashes: Package \K\S+" "$LOG_FILE" | head -1)
-            [ -z "$CONFLICT_PKG" ] && CONFLICT_PKG=$(grep -oP "Cannot install package \K\S+" "$LOG_FILE" | head -1)
-            
-            if [ -n "$CONFLICT_PKG" ]; then
-              echo "📦 冲突包: $CONFLICT_PKG"
-              sed -i "s/^CONFIG_PACKAGE_${CONFLICT_PKG}=[ym]/# CONFIG_PACKAGE_${CONFLICT_PKG} is not set/" .config
-              sed -i "s/^CONFIG_PACKAGE_luci-app-${CONFLICT_PKG}=[ym]/# CONFIG_PACKAGE_luci-app-${CONFLICT_PKG} is not set/" .config 2>/dev/null || true
+            # 🎨 生成 Banner
+            BANNER_SRC="$FILES_SRC/etc/banner"
+            BANNER_DST="$FILES_DST/etc/banner"
+            if [ -f "$BANNER_SRC" ]; then
+              DEVICE_NAME="OpenWrt"
+              [ "${{ env.DEVICE }}" = "xdr6088" ] && DEVICE_NAME="TP-LINK XDR6088"
+              [ "${{ env.DEVICE }}" = "ax6000" ] && DEVICE_NAME="Redmi AX6000"
               
-              # 深度清理缓存
-              ARCH=$(grep '^CONFIG_TARGET_ARCH_PACKAGES' .config | cut -d'"' -f2)
-              rm -rf staging_dir/target-${ARCH}/root-* tmp/.packageinfo tmp/.targetinfo 2>/dev/null || true
+              WIFI_PREFIX="OpenWrt_"
+              [ "${{ env.DEVICE }}" = "xdr6088" ] && WIFI_PREFIX="TP-LINK_"
+              [ "${{ env.DEVICE }}" = "ax6000" ] && WIFI_PREFIX="Redmi_"
               
-              make defconfig >/dev/null 2>&1
-              echo "🔄 重试打包阶段..."
-              make package/install -j1 V=s 2>&1 | tee -a "$LOG_FILE"
+              sed -e "s|{{DEVICE_NAME}}|$DEVICE_NAME|g" \
+                  -e "s|{{BUILD_DATE}}|$(date '+%Y-%m-%d')|g" \
+                  -e "s|{{WIFI_PREFIX}}|$WIFI_PREFIX|g" \
+                  -e "s|{{REPO_URL}}|https://github.com/${{ github.repository }}|g" \
+                  "$BANNER_SRC" > "$BANNER_DST"
+              log_info "Banner 已生成"
             fi
           else
-            echo "❌ 无法自动修复，请查看完整日志"
-            echo ""
-            echo "📋 最后 50 行日志:"
-            tail -50 "$LOG_FILE"
+            log_warn "diy/files 目录不存在，跳过预配置"
           fi
-        fi
-        
-        # 阶段 2: 检查固件生成
-        echo ""
-        echo "=== 阶段 2/2: 检查固件生成 ==="
-        echo "完成时间: $(date '+%H:%M:%S')"
-        echo ""
-        
-        END_TIME=$(date +%s)
-        DURATION=$((END_TIME - START_TIME))
-        echo "⏱️  总耗时: $((DURATION/3600))h $((DURATION%3600/60))m $((DURATION%60))s"
-        echo ""
-        
-        # 🔍 搜索固件文件
-        echo "🔍 搜索生成的固件文件..."
-        FIRMWARE_COUNT=$(find bin/targets -name "*.bin" -type f 2>/dev/null | wc -l)
-        echo "📦 找到固件文件数量: $FIRMWARE_COUNT"
-        
-        if [ "$FIRMWARE_COUNT" -gt 0 ]; then
+      
+      # 🔧 步骤 6: 执行自定义配置脚本
+      - name: 🔧 执行自定义配置脚本
+        run: |
+          # 📁 切换到源码工作目录
+          cd ${{ env.WORK_DIR }}
+          
+          # 🔧 定义脚本绝对路径
+          SCRIPT_PATH="${{ env.DIY_SCRIPT }}"
+          
+          # 🔍 安全检查：确保脚本存在
+          if [ ! -f "$SCRIPT_PATH" ]; then
+            echo "❌ 致命错误：找不到脚本 $SCRIPT_PATH"
+            echo "📋 当前工作区结构:"
+            ls -la "${{ github.workspace }}/"
+            exit 1
+          fi
+          
+          chmod +x "$SCRIPT_PATH"
+          echo "✅ 脚本已定位: $SCRIPT_PATH"
+          
+          # 📋 传递环境变量给脚本
+          export DEVICE="${{ env.DEVICE }}"
+          export CONFIG_VERSION="${{ env.CONFIG_VERSION }}"
+          export ENABLE_TRANSLATE="${{ env.ENABLE_TRANSLATE }}"
+          export ENABLE_KERNEL_SYNC="${{ env.ENABLE_KERNEL_SYNC }}"
+          export SKIP_FEEDS_MODIFY="${{ env.SKIP_FEEDS_MODIFY }}"
+          export WIFI_PASSWORD="${{ env.WIFI_PASSWORD }}"
+          export GITHUB_WORKSPACE="${{ github.workspace }}"
+          export GITHUB_REPOSITORY="${{ github.repository }}"
+          export SCRIPTS_DIR="${{ github.workspace }}/diy/scripts"
+          export FILES_DIR="${{ github.workspace }}/diy/files"
+          
+          # 📶 根据机型动态设置前缀与名称
+          case "$DEVICE" in
+            xdr6088) export WIFI_PREFIX="TP-LINK_"; export DEVICE_NAME="TP-LINK XDR6088" ;;
+            ax6000)  export WIFI_PREFIX="Redmi_";  export DEVICE_NAME="Redmi AX6000" ;;
+            *)       export WIFI_PREFIX="OpenWrt_"; export DEVICE_NAME="OpenWrt" ;;
+          esac
+          
+          # 🚀 执行自定义脚本
+          echo "🚀 开始执行 diy-openwrt.sh ..."
+          bash "$SCRIPT_PATH"
+          
+          # ✅ 验证配置生成结果
+          if [ -f ".config" ]; then
+            echo "📋 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
+          else
+            echo "⚠️  警告：脚本执行后未生成 .config 文件"
+          fi
+      
+      # 🔧 步骤 6.5: 强制解决包冲突 + 清理缓存 (Error 255 拦截)
+      - name: 🔧 强制解决包冲突 + 清理缓存
+        run: |
+          cd ${{ env.WORK_DIR }}
+          echo "=========================================="
+          echo "🔧 执行包冲突预检与缓存清理"
+          echo "=========================================="
+          
+          # 📦 1. vsftpd 冲突拦截（高频报错源）
+          if grep -qE "^CONFIG_PACKAGE_vsftpd-alt=[ym]" .config; then
+            echo "🔧 检测到 vsftpd-alt，正在禁用冲突包..."
+            sed -i 's/^CONFIG_PACKAGE_vsftpd=[ym]/# CONFIG_PACKAGE_vsftpd is not set/' .config
+            sed -i 's/^CONFIG_PACKAGE_luci-app-vsftpd=[ym]/# CONFIG_PACKAGE_luci-app-vsftpd is not set/' .config
+            sed -i 's/^CONFIG_PACKAGE_luci-i18n-vsftpd-zh-cn=[ym]/# CONFIG_PACKAGE_luci-i18n-vsftpd-zh-cn is not set/' .config
+            echo "✅ 已切断 vsftpd 冲突依赖链"
+          fi
+          
+          # 📦 2. 其他常见冲突对拦截
+          echo "🔍 扫描其他潜在冲突..."
+          
+          # dnsmasq 基础版 vs 完整版
+          if grep -qE "^CONFIG_PACKAGE_dnsmasq-full=[ym]" .config && grep -qE "^CONFIG_PACKAGE_dnsmasq=[ym]" .config; then
+            echo "⚠️  发现 dnsmasq 冲突，禁用基础版..."
+            sed -i 's/^CONFIG_PACKAGE_dnsmasq=[ym]/# CONFIG_PACKAGE_dnsmasq is not set/' .config
+          fi
+          
+          # firewall3 vs firewall4
+          if grep -qE "^CONFIG_PACKAGE_firewall4=[ym]" .config && grep -qE "^CONFIG_PACKAGE_firewall=[ym]" .config; then
+            echo "⚠️  发现 firewall 冲突，禁用旧版..."
+            sed -i 's/^CONFIG_PACKAGE_firewall=[ym]/# CONFIG_PACKAGE_firewall is not set/' .config
+          fi
+          
+          # libustream SSL 后端冲突
+          SSL_BACKENDS=$(grep -E "^CONFIG_PACKAGE_libustream-(mbedtls|openssl|wolfssl)=[ym]" .config | wc -l)
+          if [ "$SSL_BACKENDS" -gt 1 ]; then
+            echo "⚠️  发现 libustream 多后端冲突，保留 openssl..."
+            sed -i 's/^CONFIG_PACKAGE_libustream-mbedtls=[ym]/# CONFIG_PACKAGE_libustream-mbedtls is not set/' .config
+            sed -i 's/^CONFIG_PACKAGE_libustream-wolfssl=[ym]/# CONFIG_PACKAGE_libustream-wolfssl is not set/' .config
+          fi
+          
+          # 🧹 3. 深度清理 opkg 打包缓存（关键！）
+          echo "🧹 清理 opkg 打包缓存与临时索引..."
+          
+          # 获取目标架构（使用绝对路径安全读取）
+          ARCH=$(grep '^CONFIG_TARGET_ARCH_PACKAGES' .config | cut -d'"' -f2)
+          if [ -n "$ARCH" ]; then
+            rm -rf "${{ env.WORK_DIR }}/staging_dir/target-${ARCH}/root-"* 2>/dev/null || true
+            echo "✅ 已清理: staging_dir/target-${ARCH}/root-*"
+          else
+            rm -rf "${{ env.WORK_DIR }}/staging_dir/target-*/root-"* 2>/dev/null || true
+            echo "✅ 已清理: staging_dir/target-*/root-* (通配符)"
+          fi
+          
+          # 清理临时依赖索引
+          rm -rf "${{ env.WORK_DIR }}/tmp/.packageinfo" "${{ env.WORK_DIR }}/tmp/.targetinfo" "${{ env.WORK_DIR }}/tmp/.packageinfo-"* 2>/dev/null || true
+          echo "✅ 已清理: tmp/.packageinfo*"
+          
+          # 🔄 4. 重载依赖树
+          echo "🔄 重载依赖树 (make defconfig)..."
+          make defconfig >/dev/null 2>&1
+          
+          # 📊 5. 验证修复结果
           echo ""
-          echo "✅ 固件文件列表:"
-          find bin/targets -name "*.bin" -type f -exec ls -lh {} \; 2>/dev/null | head -10
+          echo "📋 修复后配置摘要:"
+          echo "   • 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
+          echo "   • vsftpd-alt: $(grep -c '^CONFIG_PACKAGE_vsftpd-alt=y' .config || echo 0) 个"
+          echo "   • dnsmasq-full: $(grep -c '^CONFIG_PACKAGE_dnsmasq-full=y' .config || echo 0) 个"
+          echo ""
+          echo "✅ 冲突预检与缓存清理完成！"
+          echo "=========================================="
+      
+      # 📥 步骤 7: 下载软件包
+      - name: 📥 下载软件包
+        run: |
+          cd ${{ env.WORK_DIR }}
+          echo "🔄 执行 make download..."
+          timeout 7200 make download -j8 V=s || {
+            echo "⚠️ 下载超时，清理碎片后重试..."
+            find dl -size -1024c -exec rm -f {} \;
+            make download -j4 V=s
+          }
+          find dl -size -1024c -exec rm -f {} \; 2>/dev/null || true
+      
+      # 🏗️ 步骤 8: 编译固件（📊 增强日志版 + 自动重试）
+      - name: 🏗️ 编译固件
+        id: compile
+        run: |
+          cd ${{ env.WORK_DIR }}
+          mkdir -p "${{ env.OUTPUT_DIR }}"
+          LOG_FILE="${{ env.OUTPUT_DIR }}/build.log"
+          
+          echo "=========================================="
+          echo "🏗️  OpenWrt 编译开始"
+          echo "=========================================="
+          echo "📅 时间: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "💻 设备: ${{ env.DEVICE }}"
+          echo "🔧 线程: $(nproc)"
+          echo "📁 工作目录: $(pwd)"
+          echo "=========================================="
+          
+          START_TIME=$(date +%s)
+          
+          # 📋 检查 .config 文件
+          echo ""
+          echo "🔍 检查配置文件..."
+          if [ ! -f ".config" ]; then
+            echo "❌ 错误：.config 文件不存在"
+            exit 1
+          fi
+          
+          # 📊 显示配置摘要
+          echo "📋 已选插件数量: $(grep -c '^CONFIG_PACKAGE_.*=y' .config)"
+          echo "📋 目标平台: $(grep '^CONFIG_TARGET_BOARD' .config | cut -d'"' -f2)"
           echo ""
           
-          # 📋 显示 sysupgrade.bin
-          echo "🎯 sysupgrade.bin 固件:"
-          find bin/targets -name "*sysupgrade.bin" -type f 2>/dev/null | while read -r fw; do
-            ls -lh "$fw"
-            sha256sum "$fw" | cut -d' ' -f1
+          # 🔄 执行编译（带详细日志）
+          echo "🚀 开始编译（详细日志将保存到 $LOG_FILE）..."
+          echo "=========================================="
+          
+          # 阶段 1: 编译（实时显示关键信息）
+          {
+            echo ""
+            echo "=== 阶段 1/2: 编译固件 ==="
+            echo "开始时间: $(date '+%H:%M:%S')"
+            echo ""
+            make -j$(nproc) V=s 2>&1 | tee -a "$LOG_FILE" | \
+              grep -E "(ERROR|error:|Leaving directory|Building|Package|Time:|real|m)" | tail -100
+          } || {
+            echo ""
+            echo "❌ 编译失败！检查日志..."
+          }
+          MAKE_EXIT=${PIPESTATUS[0]}
+          
+          # 📊 编译结果检查
+          echo ""
+          echo "=========================================="
+          echo "📊 编译结果检查"
+          echo "=========================================="
+          
+          if [ "$MAKE_EXIT" -ne 0 ]; then
+            echo "⚠️  编译退出码: $MAKE_EXIT"
+            echo ""
+            
+            # 🔍 尝试智能修复
+            if grep -q "Error 255\|check_data_file_clashes\|opkg_install_cmd.*Cannot install" "$LOG_FILE"; then
+              echo "🔧 检测到包冲突，尝试自动解决..."
+              CONFLICT_PKG=$(grep -oP "check_data_file_clashes: Package \K\S+" "$LOG_FILE" | head -1)
+              [ -z "$CONFLICT_PKG" ] && CONFLICT_PKG=$(grep -oP "Cannot install package \K\S+" "$LOG_FILE" | head -1)
+              
+              if [ -n "$CONFLICT_PKG" ]; then
+                echo "📦 冲突包: $CONFLICT_PKG"
+                sed -i "s/^CONFIG_PACKAGE_${CONFLICT_PKG}=[ym]/# CONFIG_PACKAGE_${CONFLICT_PKG} is not set/" .config
+                sed -i "s/^CONFIG_PACKAGE_luci-app-${CONFLICT_PKG}=[ym]/# CONFIG_PACKAGE_luci-app-${CONFLICT_PKG} is not set/" .config 2>/dev/null || true
+                
+                # 深度清理缓存
+                ARCH=$(grep '^CONFIG_TARGET_ARCH_PACKAGES' .config | cut -d'"' -f2)
+                rm -rf staging_dir/target-${ARCH}/root-* tmp/.packageinfo tmp/.targetinfo 2>/dev/null || true
+                make defconfig >/dev/null 2>&1
+                
+                echo "🔄 重试打包阶段..."
+                make package/install -j1 V=s 2>&1 | tee -a "$LOG_FILE"
+              fi
+            else
+              echo "❌ 无法自动修复，请查看完整日志"
+              echo ""
+              echo "📋 最后 50 行日志:"
+              tail -50 "$LOG_FILE"
+            fi
+          fi
+          
+          # 阶段 2: 检查固件生成
+          echo ""
+          echo "=== 阶段 2/2: 检查固件生成 ==="
+          echo "完成时间: $(date '+%H:%M:%S')"
+          echo ""
+          
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          echo "⏱️  总耗时: $((DURATION/3600))h $((DURATION%3600/60))m $((DURATION%60))s"
+          echo ""
+          
+          # 🔍 搜索固件文件
+          echo "🔍 搜索生成的固件文件..."
+          FIRMWARE_COUNT=$(find bin/targets -name "*.bin" -type f 2>/dev/null | wc -l)
+          echo "📦 找到固件文件数量: $FIRMWARE_COUNT"
+          
+          if [ "$FIRMWARE_COUNT" -gt 0 ]; then
+            echo ""
+            echo "✅ 固件文件列表:"
+            find bin/targets -name "*.bin" -type f -exec ls -lh {} \; 2>/dev/null | head -10
+            echo ""
+            
+            # 📋 显示 sysupgrade.bin
+            echo "🎯 sysupgrade.bin 固件:"
+            find bin/targets -name "*sysupgrade.bin" -type f 2>/dev/null | while read -r fw; do
+              ls -lh "$fw"
+              sha256sum "$fw" | cut -d' ' -f1
+            done
+          else
+            echo ""
+            echo "⚠️  警告：未找到 .bin 固件文件"
+            echo "📋 检查 bin/targets 目录结构:"
+            ls -la bin/targets/ 2>/dev/null || echo "❌ bin/targets 目录不存在"
+            echo ""
+            echo "📋 bin 目录内容:"
+            ls -la bin/ 2>/dev/null | head -20
+          fi
+          
+          echo ""
+          echo "=========================================="
+          
+          # ✅ 最终判断
+          if [ "$MAKE_EXIT" -eq 0 ] && [ "$FIRMWARE_COUNT" -gt 0 ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "✅ 编译成功！"
+            echo "=========================================="
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "❌ 编译失败或固件生成异常"
+            echo "=========================================="
+            echo ""
+            echo "📖 排查建议："
+            echo "  1. 查看完整日志：点击设置图标 → View raw logs"
+            echo "  2. 检查配置文件：CONFIG_TARGET_* 是否正确"
+            echo "  3. 检查磁盘空间：df -h"
+            echo "  4. 查看错误日志：$LOG_FILE"
+            exit 1
+          fi
+      
+      # 🗂️ 步骤 9: 整理固件文件（🔍 增强调试版）
+      - name: 🗂️ 整理固件文件
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd ${{ env.WORK_DIR }}
+          echo "=========================================="
+          echo "🗂️  开始整理固件文件"
+          echo "=========================================="
+          
+          # 🔍 详细搜索固件
+          echo ""
+          echo "🔍 搜索所有 .bin 文件..."
+          find bin/targets -name "*.bin" -type f 2>/dev/null | while read -r f; do
+            SIZE=$(ls -lh "$f" | awk '{print $5}')
+            echo "  📦 $f ($SIZE)"
           done
-        else
           echo ""
-          echo "⚠️  警告：未找到 .bin 固件文件"
-          echo "📋 检查 bin/targets 目录结构:"
-          ls -la bin/targets/ 2>/dev/null || echo "❌ bin/targets 目录不存在"
+          
+          echo "🎯 查找 sysupgrade.bin..."
+          FIRMWARE_PATH=$(find bin/targets -name "*sysupgrade.bin" -type f 2>/dev/null | head -1)
+          
+          if [ -z "$FIRMWARE_PATH" ]; then
+            echo "❌ 错误：未找到 sysupgrade.bin"
+            echo ""
+            echo "📋 bin/targets 目录结构:"
+            ls -laR bin/targets/ 2>/dev/null | head -50
+            echo ""
+            echo "⚠️  可能原因："
+            echo "  1. 配置文件未启用固件生成"
+            echo "  2. 目标平台选择错误"
+            echo "  3. 编译过程被中断"
+            exit 1
+          fi
+          
+          echo "✅ 找到固件: $FIRMWARE_PATH"
+          ls -lh "$FIRMWARE_PATH"
+          
+          # 📁 创建输出目录
+          mkdir -p ${{ env.OUTPUT_DIR }}
+          
+          # 🔧 重命名固件
+          FIRMWARE_BASE=$(basename "$FIRMWARE_PATH" .bin)
+          NEW_NAME="OpenWrt-${{ env.DEVICE }}-$(date +"%Y%m%d")-${FIRMWARE_BASE#*-}.bin"
           echo ""
-          echo "📋 bin 目录内容:"
-          ls -la bin/ 2>/dev/null | head -20
-        fi
-        
-        echo ""
-        echo "=========================================="
-        
-        # ✅ 最终判断
-        if [ "$MAKE_EXIT" -eq 0 ] && [ "$FIRMWARE_COUNT" -gt 0 ]; then
-          echo "status=success" >> $GITHUB_OUTPUT
-          echo "✅ 编译成功！"
+          echo "📝 重命名固件..."
+          echo "  原名: $(basename "$FIRMWARE_PATH")"
+          echo "  新名: $NEW_NAME"
+          cp "$FIRMWARE_PATH" "${{ env.OUTPUT_DIR }}/$NEW_NAME"
+          echo "FIRMWARE_NAME=$NEW_NAME" >> $GITHUB_ENV
+          
+          # 📋 生成校验和
+          echo ""
+          echo "🔐 生成 SHA256 校验和..."
+          sha256sum "${{ env.OUTPUT_DIR }}"/*.bin > "${{ env.OUTPUT_DIR }}/sha256sums.txt"
+          cat "${{ env.OUTPUT_DIR }}/sha256sums.txt"
+          
+          # 💾 备份配置
+          echo ""
+          echo "💾 备份配置文件..."
+          cp ${{ env.WORK_DIR }}/.config "${{ env.OUTPUT_DIR }}/build.config"
+          echo "✅ 已备份: build.config"
+          
+          # 📦 打包 IPK（可选）
+          if [ -d "bin/packages" ]; then
+            echo ""
+            echo "📦 打包 IPK 插件..."
+            mkdir -p "${{ env.OUTPUT_DIR }}/packages"
+            IPK_COUNT=$(find bin/packages -name "*.ipk" -type f 2>/dev/null | wc -l)
+            echo "  找到 IPK 文件: $IPK_COUNT 个"
+            find bin/packages -name "*.ipk" -exec cp {} "${{ env.OUTPUT_DIR }}/packages/" \; 2>/dev/null || true
+            tar -czf "${{ env.OUTPUT_DIR }}/packages.tar.gz" -C "${{ env.OUTPUT_DIR }}" packages
+            PKG_SIZE=$(ls -lh "${{ env.OUTPUT_DIR }}/packages.tar.gz" | awk '{print $5}')
+            echo "  打包完成: packages.tar.gz ($PKG_SIZE)"
+          fi
+          
+          echo "FIRMWARE_PATH=${{ env.OUTPUT_DIR }}" >> $GITHUB_ENV
+          echo ""
           echo "=========================================="
-        else
-          echo "status=failed" >> $GITHUB_OUTPUT
-          echo "❌ 编译失败或固件生成异常"
+          echo "✅ 固件整理完成！"
           echo "=========================================="
           echo ""
-          echo "📖 排查建议："
-          echo "  1. 查看完整日志：点击设置图标 → View raw logs"
-          echo "  2. 检查配置文件：CONFIG_TARGET_* 是否正确"
-          echo "  3. 检查磁盘空间：df -h"
-          echo "  4. 查看错误日志：$LOG_FILE"
-          exit 1
-        fi
-
-    # 🗂️ 步骤 9: 整理固件文件（🔍 增强调试版）
-    - name: 🗂️ 整理固件文件
-      if: steps.compile.outputs.status == 'success'
-      run: |
-        cd ${{ env.WORK_DIR }}
-        
-        echo "=========================================="
-        echo "🗂️  开始整理固件文件"
-        echo "=========================================="
-        
-        # 🔍 详细搜索固件
-        echo ""
-        echo "🔍 搜索所有 .bin 文件..."
-        find bin/targets -name "*.bin" -type f 2>/dev/null | while read -r f; do
-          SIZE=$(ls -lh "$f" | awk '{print $5}')
-          echo "  📦 $f ($SIZE)"
-        done
-        
-        echo ""
-        echo "🎯 查找 sysupgrade.bin..."
-        FIRMWARE_PATH=$(find bin/targets -name "*sysupgrade.bin" -type f 2>/dev/null | head -1)
-        
-        if [ -z "$FIRMWARE_PATH" ]; then
-          echo "❌ 错误：未找到 sysupgrade.bin"
+          echo "📦 输出文件列表:"
+          ls -lh ${{ env.OUTPUT_DIR }}/
           echo ""
-          echo "📋 bin/targets 目录结构:"
-          ls -laR bin/targets/ 2>/dev/null | head -50
-          echo ""
-          echo "⚠️  可能原因："
-          echo "  1. 配置文件未启用固件生成"
-          echo "  2. 目标平台选择错误"
-          echo "  3. 编译过程被中断"
-          exit 1
-        fi
-        
-        echo "✅ 找到固件: $FIRMWARE_PATH"
-        ls -lh "$FIRMWARE_PATH"
-        
-        # 📁 创建输出目录
-        mkdir -p ${{ env.OUTPUT_DIR }}
-        
-        # 🔧 重命名固件
-        FIRMWARE_BASE=$(basename "$FIRMWARE_PATH" .bin)
-        NEW_NAME="OpenWrt-${{ env.DEVICE }}-$(date +"%Y%m%d")-${FIRMWARE_BASE#*-}.bin"
-        
-        echo ""
-        echo "📝 重命名固件..."
-        echo "  原名: $(basename "$FIRMWARE_PATH")"
-        echo "  新名: $NEW_NAME"
-        
-        cp "$FIRMWARE_PATH" "${{ env.OUTPUT_DIR }}/$NEW_NAME"
-        echo "FIRMWARE_NAME=$NEW_NAME" >> $GITHUB_ENV
-        
-        # 📋 生成校验和
-        echo ""
-        echo "🔐 生成 SHA256 校验和..."
-        sha256sum "${{ env.OUTPUT_DIR }}"/*.bin > "${{ env.OUTPUT_DIR }}/sha256sums.txt"
-        cat "${{ env.OUTPUT_DIR }}/sha256sums.txt"
-        
-        # 💾 备份配置
-        echo ""
-        echo "💾 备份配置文件..."
-        cp ${{ env.WORK_DIR }}/.config "${{ env.OUTPUT_DIR }}/build.config"
-        echo "✅ 已备份: build.config"
-        
-        # 📦 打包 IPK（可选）
-        if [ -d "bin/packages" ]; then
-          echo ""
-          echo "📦 打包 IPK 插件..."
-          mkdir -p "${{ env.OUTPUT_DIR }}/packages"
-          IPK_COUNT=$(find bin/packages -name "*.ipk" -type f 2>/dev/null | wc -l)
-          echo "  找到 IPK 文件: $IPK_COUNT 个"
-          
-          find bin/packages -name "*.ipk" -exec cp {} "${{ env.OUTPUT_DIR }}/packages/" \; 2>/dev/null || true
-          tar -czf "${{ env.OUTPUT_DIR }}/packages.tar.gz" -C "${{ env.OUTPUT_DIR }}" packages
-          
-          PKG_SIZE=$(ls -lh "${{ env.OUTPUT_DIR }}/packages.tar.gz" | awk '{print $5}')
-          echo "  打包完成: packages.tar.gz ($PKG_SIZE)"
-        fi
-        
-        echo "FIRMWARE_PATH=${{ env.OUTPUT_DIR }}" >> $GITHUB_ENV
-        
-        echo ""
-        echo "=========================================="
-        echo "✅ 固件整理完成！"
-        echo "=========================================="
-        echo ""
-        echo "📦 输出文件列表:"
-        ls -lh ${{ env.OUTPUT_DIR }}/
-        echo ""
-        echo "🎉 下一步将自动发布到 Release"
-
-    # 📤 步骤 10: 上传 Artifact
-    - name: 📤 上传固件到 Artifact
-      if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
-        path: ${{ env.OUTPUT_DIR }}/*
-        retention-days: 7
-
-    # 🚀 步骤 11: 发布 Release
-    - name: 🚀 发布固件到 Release
-      if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
-      uses: ncipollo/release-action@v1
-      with:
-        name: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
-        tag: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
-        token: ${{ secrets.GITHUB_TOKEN }}
-        artifacts: |
-          ${{ env.OUTPUT_DIR }}/*.bin
-          ${{ env.OUTPUT_DIR }}/sha256sums.txt
-          ${{ env.OUTPUT_DIR }}/build.config
-        body: |
-          ### 📒 固件信息
-          
-          | 项目 | 值 |
-          |------|-----|
-          | 💻 平台 | ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }} |
-          | 📂 源码 | [openwrt/openwrt](${{ env.REPO_URL }}) |
-          | 🌳 分支 | ${{ env.REPO_BRANCH }} |
-          | 🕐 编译时间 | ${{ env.COMPILE_DATE }} |
-          | 🔤 汉化 | ${{ env.ENABLE_TRANSLATE }} |
-          
-          ### 🔧 默认配置
-          - 🌐 管理地址: `192.168.1.1`
-          - 👤 用户名: `root`
-          - 🔒 密码: **首次登录强制修改**
-          - 📶 WiFi: 前缀`${{ env.DEVICE == 'xdr6088' && 'TP-LINK_' || 'OpenWrt_' }}` + MAC_2G/5G
-          
-          ### ⚠️ 注意事项
-          1. 首次刷写建议: `sysupgrade -n firmware.bin`
-          2. 固件校验: `sha256sum -c sha256sums.txt`
-          3. 配置文件备份: `build.config`
-
-    # 📝 步骤 12: 上传日志
-    - name: 📝 上传编译日志
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-logs-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
-        path: |
-          ${{ env.OUTPUT_DIR }}/build.log
-          ${{ env.WORK_DIR }}/feeds.conf.default
-        retention-days: 3
+          echo "🎉 下一步将自动发布到 Release"
+      
+      # 📤 步骤 10: 上传 Artifact
+      - name: 📤 上传固件到 Artifact
+        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
+          path: ${{ env.OUTPUT_DIR }}/*
+          retention-days: 7
+      
+      # 🚀 步骤 11: 发布 Release
+      - name: 🚀 发布固件到 Release
+        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
+        uses: ncipollo/release-action@v1
+        with:
+          name: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
+          tag: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: |
+            ${{ env.OUTPUT_DIR }}/*.bin
+            ${{ env.OUTPUT_DIR }}/sha256sums.txt
+            ${{ env.OUTPUT_DIR }}/build.config
+          body: |
+            ### 📒 固件信息
+            | 项目 | 值 |
+            |------|-----|
+            | 💻 平台 | ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }} |
+            | 📂 源码 | [openwrt/openwrt](${{ env.REPO_URL }}) |
+            | 🌳 分支 | ${{ env.REPO_BRANCH }} |
+            | 🕐 编译时间 | ${{ env.COMPILE_DATE }} |
+            | 🔤 汉化 | ${{ env.ENABLE_TRANSLATE }} |
+            
+            ### 🔧 默认配置
+            - 🌐 管理地址: `192.168.1.1`
+            - 👤 用户名: `root`
+            - 🔒 密码: **首次登录强制修改**
+            - 📶 WiFi: 前缀`${{ env.DEVICE == 'xdr6088' && 'TP-LINK_' || 'OpenWrt_' }}` + MAC_2G/5G
+            
+            ### ⚠️ 注意事项
+            1. 首次刷写建议: `sysupgrade -n firmware.bin`
+            2. 固件校验: `sha256sum -c sha256sums.txt`
+            3. 配置文件备份: `build.config`
+      
+      # 📝 步骤 12: 上传日志
+      - name: 📝 上传编译日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
+          path: |
+            ${{ env.OUTPUT_DIR }}/build.log
+            ${{ env.WORK_DIR }}/feeds.conf.default
+          retention-days: 3
