@@ -1,7 +1,6 @@
 #!/bin/bash
 # diy/scripts/translate-map.sh - OpenWrt 插件汉化映射表
-# 用法: source translate-map.sh && echo "${TRANSLATE_MAP[软件包]}"
-# 维护: 按字母顺序排列，便于查找和合并
+# 用法: source translate-map.sh && translate_file <文件路径>
 
 # 📋 声明关联数组（需 Bash 4.0+）
 declare -gA TRANSLATE_MAP=(
