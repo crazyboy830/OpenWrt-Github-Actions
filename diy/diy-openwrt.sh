@@ -32,8 +32,8 @@ log_error() { echo -e "\033[0;31m[✗]\033[0m $1"; }
 # ============================================================================
 load_helpers() {
     log_info "🔧 加载辅助脚本..."
-    [ -f "$SCRIPTS_DIR/translate-map.sh" ] && source "$SCRIPTS_DIR/translate-map.sh" && log_info "  ✓ translate-map.sh"
-    [ -f "$SCRIPTS_DIR/conflict-resolver.sh" ] && source "$SCRIPTS_DIR/conflict-resolver.sh" && log_info "  ✓ conflict-resolver.sh"
+    # [ -f "$SCRIPTS_DIR/translate-map.sh" ] && source "$SCRIPTS_DIR/translate-map.sh" && log_info "  ✓ translate-map.sh"
+    # [ -f "$SCRIPTS_DIR/conflict-resolver.sh" ] && source "$SCRIPTS_DIR/conflict-resolver.sh" && log_info "  ✓ conflict-resolver.sh"
 }
 
 # ============================================================================
