@@ -289,7 +289,7 @@ jobs:
         esac
         
         # 🚀 执行自定义脚本
-        echo "🚀 开始执行 diy-lede.sh ..."
+        echo "🚀 开始执行 diy-openwrt.sh ..."
         "$SCRIPT_PATH"
         
         # ✅ 验证配置生成结果
