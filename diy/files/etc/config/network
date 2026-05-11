@@ -1,5 +1,7 @@
 # /etc/config/network - OpenWrt 网络配置文件
-# 适用于: TP-LINK XDR6088 / REDMI AX6000
+# 适用于: TP-LINK XDR6088 / REDMI AX6000 / 通用机型
+# 适配: 官方OpenWrt源码
+# 最后更新: 2026-05-11
 
 config interface 'loopback'
     option device 'lo'
@@ -11,6 +13,7 @@ config globals 'globals'
     option ula_prefix 'auto'
     option packet_steering '1'
 
+# 🌐 LAN 口配置（管理接口）
 config interface 'lan'
     option device 'br-lan'
     option proto 'static'
@@ -18,29 +21,45 @@ config interface 'lan'
     option netmask '255.255.255.0'
     option ip6assign '60'
     option delegate '0'
+    
+    # DHCP 服务器配置
     list dhcp_option '6,192.168.1.1'
     list dhcp_option '15,openwrt.lan'
+    
+    # DNS 转发
     option dns '192.168.1.1'
     option ignore '0'
 
+# 🌍 WAN 口配置（自动获取）
 config interface 'wan'
     option device 'eth0'
     option proto 'dhcp'
     option metric '10'
+    
+    # IPv6 支持
     option reqprefix 'auto'
     option ip6assign '60'
 
+# 🔁 WAN6 接口（原生 IPv6）
 config interface 'wan6'
     option device 'eth0'
     option proto 'dhcpv6'
     option reqprefix 'auto'
     option ip6assign '60'
 
-config device
-    option name 'br-lan'
-    option type 'bridge'
-    list ports 'eth1'
-    list ports 'wlan0'
-    list ports 'wlan1'
-    option stp '0'
-    option forward_delay '0'
+# 🔗 物理接口绑定（根据机型自动适配）
+# XDR6088: eth0=WAN, eth1=LAN (内部交换)
+# AX6000:  eth0=WAN+LAN (单网口 + 内部交换)
+
+config switch
+    option name 'switch0'
+    option reset '1'
+    option enable_vlan '1'
+
+# VLAN 配置 - LAN 端口 (端口 1-4)
+config switch_vlan
+    option device 'switch0'
+    option vlan '1'
+    option ports '1 2 3 4 6t'  # 6t = CPU 标签端口
+
+# VLAN 配置 - WAN 端口 (端口
