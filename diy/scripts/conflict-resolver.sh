@@ -1,6 +1,6 @@
 #!/bin/bash
 # diy/scripts/conflict-resolver.sh - OpenWrt 包冲突自动解决器
-# 用法: ./conflict-resolver.sh .config  或  source conflict-resolver.sh && resolve_conflicts
+# 用法: ./conflict-resolver.sh .config  或  source conflict-resolver.sh && run_conflict_resolver
 
 set -euo pipefail
 
@@ -45,8 +45,8 @@ disable_pkg() {
     echo "$LOG_PREFIX 禁用: $pkg"
 }
 
-# 🎯 主解决函数
-resolve_conflicts() {
+# 🎯 主解决函数 (已重命名以避免与 diy-openwrt.sh 冲突)
+run_conflict_resolver() {
     local resolved=0
     echo "$LOG_PREFIX 开始冲突检测: $CONFIG_FILE"
     
@@ -118,6 +118,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         echo "用法: $0 <.config 文件路径>"
         exit 1
     fi
-    resolve_conflicts
+    run_conflict_resolver
     clean_package_cache
 fi
