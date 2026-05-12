@@ -38,4 +38,20 @@ chmod +x openwrt-build.sh
 # - build-ax6000-20260512.config  # 编译配置备份
 # - packages.tar.gz  # 插件包集合（可选）
 ```
-
+# 🔑 核心特性
+```
+✅ 官方源码适配
+专为 openwrt/openwrt 设计，非 coolsnowwolf/lede
+✅ 智能机型映射
+自动设置 WiFi 前缀、Banner、主机名
+✅ 汉化自动重置
+编译前还原语言文件，避免匹配失败
+✅ 冲突预检
+自动处理 vsftpd/dnsmasq/firewall 等常见冲突
+✅ 多格式兼容
+支持 .bin/.itb 固件 + .ipk/.apk 插件
+✅ 新手模式
+一键安装依赖 + 配置第三方源，降低使用门槛
+✅ 内核同步
+清理缓存强制拉取最新内核，避免版本滞后
+```
