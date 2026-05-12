@@ -46,7 +46,7 @@ env:
   REPO_URL: https://github.com/openwrt/openwrt.git
   REPO_BRANCH: master
   
-  # 🎯 设备配置
+  #  设备配置
   DEVICE: ${{ github.event.inputs.device || 'ax6000' }}
   CONFIG_VERSION: ${{ github.event.inputs.config_version || 'full' }}
   
@@ -64,7 +64,7 @@ env:
   CACHE_TOOLCHAIN: true
   TZ: Asia/Shanghai
   
-  # 📁 路径配置（统一使用 github.workspace 确保绝对路径稳定）
+  #  路径配置（统一使用 github.workspace 确保绝对路径稳定）
   WORK_DIR: ${{ github.workspace }}/openwrt
   OUTPUT_DIR: ${{ github.workspace }}/output
   DIY_SCRIPT: ${{ github.workspace }}/diy/diy-openwrt.sh
@@ -76,7 +76,7 @@ jobs:
     
     steps:
       # 🔍 步骤 0: 环境检测
-      - name: 🔍 系统环境检测
+      - name:  系统环境检测
         run: |
           echo "🖥️ GitHub Actions 服务器信息"
           echo "• CPU: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2 | xargs)"
@@ -98,7 +98,7 @@ jobs:
           sudo -E apt -yqq autoclean
           sudo -E apt -yqq clean
           
-          #  安装额外依赖
+          # 📦 安装额外依赖
           sudo -E apt -yqq install dos2unix python3-netifaces libfuse-dev
           
           # 🌐 使用 immortalwrt 初始化脚本（兼容官方 OpenWrt）
@@ -116,14 +116,14 @@ jobs:
           df -h
       
       # 💾 步骤 2: 最大化磁盘空间
-      - name:  合并磁盘空间
+      - name: 💾 合并磁盘空间
         uses: easimon/maximize-build-space@master
         with:
           swap-size-mb: 2048
           temp-reserve-mb: 200
           root-reserve-mb: 2048
       
-      # 🔍 步骤 3: 检出仓库代码
+      #  步骤 3: 检出仓库代码
       - name: 🔍 检出仓库代码
         uses: actions/checkout@v4
         with:
@@ -245,14 +245,14 @@ jobs:
                   -e "s|{{WIFI_PREFIX}}|$WIFI_PREFIX|g" \
                   -e "s|{{REPO_URL}}|https://github.com/${{ github.repository }}|g" \
                   "$BANNER_SRC" > "$BANNER_DST"
-              log_info "Banner 已生成"
+              log_info "Banner 已生成 (WiFi前缀: $WIFI_PREFIX)"
             fi
           else
             log_warn "diy/files 目录不存在，跳过预配置"
           fi
       
-      #  步骤 6: 执行自定义配置脚本
-      - name: 🔧 执行自定义配置脚本
+      # 🔧 步骤 6: 执行自定义配置脚本
+      - name:  执行自定义配置脚本
         run: |
           # 📁 切换到源码工作目录
           cd ${{ env.WORK_DIR }}
@@ -260,10 +260,10 @@ jobs:
           # 🔧 定义脚本绝对路径
           SCRIPT_PATH="${{ env.DIY_SCRIPT }}"
           
-          # 🔍 安全检查：确保脚本存在
+          #  安全检查：确保脚本存在
           if [ ! -f "$SCRIPT_PATH" ]; then
             echo "❌ 致命错误：找不到脚本 $SCRIPT_PATH"
-            echo " 当前工作区结构:"
+            echo "📋 当前工作区结构:"
             ls -la "${{ github.workspace }}/"
             exit 1
           fi
@@ -290,7 +290,7 @@ jobs:
             *)       export WIFI_PREFIX="OpenWrt_"; export DEVICE_NAME="OpenWrt" ;;
           esac
           
-          #  执行自定义脚本
+          # 🚀 执行自定义脚本
           echo "🚀 开始执行 diy-openwrt.sh ..."
           bash "$SCRIPT_PATH"
           
@@ -298,7 +298,7 @@ jobs:
           if [ -f ".config" ]; then
             echo "📋 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
           else
-            echo "⚠️  警告：脚本执行后未生成 .config 文件"
+            echo "️  警告：脚本执行后未生成 .config 文件"
           fi
 
       # 🔧 步骤 6.3: 修复包依赖冲突（iwinfo/libiwinfo）
@@ -318,7 +318,7 @@ jobs:
           
           echo "✅ 依赖修复完成"
       
-      # 🔧 步骤 6.5: 强制解决包冲突 + 清理缓存 (Error 255 拦截)
+      #  步骤 6.5: 强制解决包冲突 + 清理缓存 (Error 255 拦截)
       - name: 🔧 强制解决包冲突 + 清理缓存
         run: |
           cd ${{ env.WORK_DIR }}
@@ -335,7 +335,7 @@ jobs:
             echo "✅ 已切断 vsftpd 冲突依赖链"
           fi
           
-          #  2. 其他常见冲突对拦截
+          # 📦 2. 其他常见冲突对拦截
           echo "🔍 扫描其他潜在冲突..."
           
           # dnsmasq 基础版 vs 完整版
@@ -358,7 +358,7 @@ jobs:
             sed -i 's/^CONFIG_PACKAGE_libustream-wolfssl=[ym]/# CONFIG_PACKAGE_libustream-wolfssl is not set/' .config
           fi
           
-          #  3. 深度清理 opkg 打包缓存（关键！）
+          # 🧹 3. 深度清理 opkg 打包缓存（关键！）
           echo "🧹 清理 opkg 打包缓存与临时索引..."
           
           # 获取目标架构（使用绝对路径安全读取）
@@ -381,7 +381,7 @@ jobs:
           
           # 📊 5. 验证修复结果
           echo ""
-          echo " 修复后配置摘要:"
+          echo "📋 修复后配置摘要:"
           echo "   • 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
           echo "   • vsftpd-alt: $(grep -c '^CONFIG_PACKAGE_vsftpd-alt=y' .config || echo 0) 个"
           echo "   • dnsmasq-full: $(grep -c '^CONFIG_PACKAGE_dnsmasq-full=y' .config || echo 0) 个"
@@ -390,7 +390,7 @@ jobs:
           echo "=========================================="
       
       # 📥 步骤 7: 下载软件包
-      - name:  下载软件包
+      - name: 📥 下载软件包
         run: |
           cd ${{ env.WORK_DIR }}
           echo "🔄 执行 make download..."
@@ -401,7 +401,7 @@ jobs:
           }
           find dl -size -1024c -exec rm -f {} \; 2>/dev/null || true
       
-      # 🏗️ 步骤 8: 编译固件（📊 增强日志版 + 自动重试）
+      # 🏗️ 步骤 8: 编译固件（ 增强日志版 + 自动重试）
       - name: 🏗️ 编译固件
         id: compile
         run: |
@@ -414,7 +414,7 @@ jobs:
           echo "=========================================="
           echo "📅 时间: $(date '+%Y-%m-%d %H:%M:%S')"
           echo "💻 设备: ${{ env.DEVICE }}"
-          echo " 线程: $(nproc)"
+          echo "🔧 线程: $(nproc)"
           echo "📁 工作目录: $(pwd)"
           echo "=========================================="
           
@@ -429,7 +429,7 @@ jobs:
           fi
           
           # 📊 显示配置摘要
-          echo "📋 已选插件数量: $(grep -c '^CONFIG_PACKAGE_.*=y' .config)"
+          echo " 已选插件数量: $(grep -c '^CONFIG_PACKAGE_.*=y' .config)"
           echo "📋 目标平台: $(grep '^CONFIG_TARGET_BOARD' .config | cut -d'"' -f2)"
           echo ""
           
@@ -461,7 +461,7 @@ jobs:
             echo "⚠️  编译退出码: $MAKE_EXIT"
             echo ""
             
-            #  尝试智能修复
+            # 🔍 尝试智能修复
             if grep -q "Error 255\|check_data_file_clashes\|opkg_install_cmd.*Cannot install" "$LOG_FILE"; then
               echo "🔧 检测到包冲突，尝试自动解决..."
               CONFLICT_PKG=$(grep -oP "check_data_file_clashes: Package \K\S+" "$LOG_FILE" | head -1)
@@ -499,21 +499,21 @@ jobs:
           echo "⏱️  总耗时: $((DURATION/3600))h $((DURATION%3600/60))m $((DURATION%60))s"
           echo ""
           
-          #  搜索固件文件
+          # 🔍 搜索固件文件
           echo "🔍 搜索生成的固件文件..."
           # ✅ 兼容 .bin 和 .itb 格式
-          FIRMWARE_COUNT=$(find bin/targets -name "*sysupgrade*" -type f \( -name "*.bin" -o -name "*.itb" \) 2>/dev/null | wc -l)
-          echo "📦 找到固件文件数量: $FIRMWARE_COUNT"
+          FIRMWARE_COUNT=$(find bin/targets -name "*sysupgrade*" -type f 2>/dev/null | grep -E '\.(bin|itb)$' | wc -l)
+          echo "📦 找到 sysupgrade 固件数量: $FIRMWARE_COUNT"
           
           if [ "$FIRMWARE_COUNT" -gt 0 ]; then
             echo ""
-            echo "✅ 固件文件列表:"
-            find bin/targets -name "*sysupgrade*" -type f \( -name "*.bin" -o -name "*.itb" \) 2>/dev/null -exec ls -lh {} \; | head -10
+            echo "✅ sysupgrade 固件列表:"
+            find bin/targets -name "*sysupgrade*" -type f 2>/dev/null | grep -E '\.(bin|itb)$' -exec ls -lh {} \; | head -10
             echo ""
           else
             echo ""
             echo "⚠️  警告：未找到 sysupgrade 固件文件"
-            echo " 检查 bin/targets 目录结构:"
+            echo "📋 检查 bin/targets 目录结构:"
             ls -la bin/targets/ 2>/dev/null || echo "❌ bin/targets 目录不存在"
           fi
           
@@ -527,7 +527,7 @@ jobs:
             echo "=========================================="
           else
             echo "status=failed" >> $GITHUB_OUTPUT
-            echo "❌ 编译失败或固件生成异常"
+            echo " 编译失败或固件生成异常"
             echo "=========================================="
             echo ""
             echo "📖 排查建议："
@@ -538,7 +538,7 @@ jobs:
             exit 1
           fi
       
-      # 🗂️ 步骤 9: 整理固件文件（🔍 增强调试版 + 兼容 .itb/.apk 格式）
+      # ️ 步骤 9: 整理固件文件（🔍 增强调试版 + 兼容 .itb/.apk 格式 + 底包保存）
       - name: 🗂️ 整理固件文件
         if: steps.compile.outputs.status == 'success'
         run: |
@@ -547,57 +547,107 @@ jobs:
           echo "🗂️  开始整理固件文件"
           echo "=========================================="
           
-          #  详细搜索固件
-          echo ""
-          echo "🔍 搜索所有 sysupgrade 固件..."
-          find bin/targets -name "*sysupgrade*" -type f 2>/dev/null | while read -r f; do
-            SIZE=$(ls -lh "$f" | awk '{print $5}')
-            echo "  📦 $f ($SIZE)"
-          done
-          echo ""
+          # 🔍 机型映射（内部代号 → 用户友好名称）
+          case "${{ env.DEVICE }}" in
+            ax6000)  DEVICE_FRIENDLY="redmi-ax6000"; DEVICE_DISPLAY="Redmi AX6000" ;;
+            xdr6088) DEVICE_FRIENDLY="tplink-xdr6088"; DEVICE_DISPLAY="TP-LINK XDR6088" ;;
+            *)       DEVICE_FRIENDLY="${{ env.DEVICE }}"; DEVICE_DISPLAY="${{ env.DEVICE }}" ;;
+          esac
           
-          echo "🎯 查找 sysupgrade 固件 (.bin 或 .itb)..."
-          # ✅ 修复：兼容新版 OpenWrt 的 .itb (FIT) 格式
-          FIRMWARE_PATH=$(find bin/targets -name "*sysupgrade*" -type f 2>/dev/null | grep -E '\.(bin|itb)$' | head -1)
+          # 🔍 配置版本映射
+          case "${{ env.CONFIG_VERSION }}" in
+            full) CONFIG_SUFFIX="full" ;;
+            mini) CONFIG_SUFFIX="mini" ;;
+            test) CONFIG_SUFFIX="test" ;;
+            *)    CONFIG_SUFFIX="${{ env.CONFIG_VERSION }}" ;;
+          esac
           
-          if [ -z "$FIRMWARE_PATH" ]; then
-            echo "❌ 错误：未找到 sysupgrade 固件"
-            echo ""
-            echo "📋 bin/targets 目录结构:"
-            ls -laR bin/targets/ 2>/dev/null | head -50
-            exit 1
-          fi
+          # 🔍 时间戳（精确到分钟，避免同名冲突）
+          TIMESTAMP=$(date +"%Y%m%d-%H%M")
           
-          echo "✅ 找到固件: $FIRMWARE_PATH"
-          ls -lh "$FIRMWARE_PATH"
-          
-          #  创建输出目录
+          # 📁 创建输出目录
           mkdir -p ${{ env.OUTPUT_DIR }}
           
-          #  动态提取后缀并重命名固件
-          FIRMWARE_EXT="${FIRMWARE_PATH##*.}"
-          FIRMWARE_BASE=$(basename "$FIRMWARE_PATH" .$FIRMWARE_EXT)
-          NEW_NAME="OpenWrt-${{ env.DEVICE }}-$(date +"%Y%m%d")-${FIRMWARE_BASE#*-}.${FIRMWARE_EXT}"
+          # 🔍 1. 查找并处理 sysupgrade 固件
           echo ""
-          echo "📝 重命名固件..."
-          echo "  原名: $(basename "$FIRMWARE_PATH")"
-          echo "  新名: $NEW_NAME"
-          cp "$FIRMWARE_PATH" "${{ env.OUTPUT_DIR }}/$NEW_NAME"
-          echo "FIRMWARE_NAME=$NEW_NAME" >> $GITHUB_ENV
+          echo "🎯 查找 sysupgrade 固件 (.bin 或 .itb)..."
+          FIRMWARE_PATH=$(find bin/targets -name "*sysupgrade*" -type f 2>/dev/null | grep -E '\.(bin|itb)$' | head -1)
           
-          #  生成校验和 (兼容 .bin 和 .itb)
+          if [ -n "$FIRMWARE_PATH" ]; then
+            echo "✅ 找到 sysupgrade 固件: $FIRMWARE_PATH"
+            FIRMWARE_EXT="${FIRMWARE_PATH##*.}"
+            NEW_NAME="OpenWrt-${DEVICE_FRIENDLY}-${CONFIG_SUFFIX}-${TIMESTAMP}-sysupgrade.${FIRMWARE_EXT}"
+            cp "$FIRMWARE_PATH" "${{ env.OUTPUT_DIR }}/$NEW_NAME"
+            echo "  📦 已保存: $NEW_NAME"
+          else
+            echo "⚠️  警告：未找到 sysupgrade 固件"
+          fi
+          
+          # 🔍 2. 查找并处理 initramfs 恢复固件（重要！）
+          echo ""
+          echo " 查找 initramfs 恢复固件..."
+          INITRAMFS_PATH=$(find bin/targets -name "*initramfs*" -type f 2>/dev/null | grep -E '\.(itb|bin)$' | head -1)
+          
+          if [ -n "$INITRAMFS_PATH" ]; then
+            echo "✅ 找到 initramfs 固件: $INITRAMFS_PATH"
+            INITRAMFS_EXT="${INITRAMFS_PATH##*.}"
+            INITRAMFS_NAME="OpenWrt-${DEVICE_FRIENDLY}-${CONFIG_SUFFIX}-${TIMESTAMP}-initramfs-recovery.${INITRAMFS_EXT}"
+            cp "$INITRAMFS_PATH" "${{ env.OUTPUT_DIR }}/$INITRAMFS_NAME"
+            echo "  📦 已保存: $INITRAMFS_NAME"
+            echo "  💡 用途: 首次刷机/救砖（从 U-Boot 或恢复模式加载）"
+          else
+            echo "⚠️  警告：未找到 initramfs 固件"
+          fi
+          
+          # 🔍 3. 查找并处理 factory 工厂固件
+          echo ""
+          echo "🎯 查找 factory 工厂固件..."
+          FACTORY_PATH=$(find bin/targets -name "*factory*" -type f 2>/dev/null | head -1)
+          
+          if [ -n "$FACTORY_PATH" ]; then
+            echo "✅ 找到 factory 固件: $FACTORY_PATH"
+            FACTORY_EXT="${FACTORY_PATH##*.}"
+            FACTORY_NAME="OpenWrt-${DEVICE_FRIENDLY}-${CONFIG_SUFFIX}-${TIMESTAMP}-factory.${FACTORY_EXT}"
+            cp "$FACTORY_PATH" "${{ env.OUTPUT_DIR }}/$FACTORY_NAME"
+            echo "  📦 已保存: $FACTORY_NAME"
+            echo "  💡 用途: 从官方固件直接刷入 OpenWrt"
+            
+            # 同时查找其他 factory 变体（nor-factory, snand-factory 等）
+            find bin/targets -name "*factory*" -type f 2>/dev/null | while read -r f; do
+              if [ "$f" != "$FACTORY_PATH" ]; then
+                BASE_NAME=$(basename "$f")
+                FACTORY_VAR_NAME="OpenWrt-${DEVICE_FRIENDLY}-${CONFIG_SUFFIX}-${TIMESTAMP}-${BASE_NAME#openwrt-*}"
+                cp "$f" "${{ env.OUTPUT_DIR }}/$FACTORY_VAR_NAME"
+                echo "  📦 已保存: $FACTORY_VAR_NAME"
+              fi
+            done
+          else
+            echo "⚠️  警告：未找到 factory 固件"
+          fi
+          
+          # 🔍 4. 查找并处理 bootloader 文件（preloader/uboot）
+          echo ""
+          echo "🎯 查找 bootloader 文件..."
+          find bin/targets -name "*preloader*" -o -name "*bl31*" -o -name "*uboot.fip" 2>/dev/null | while read -r f; do
+            BASE_NAME=$(basename "$f")
+            BOOT_NAME="OpenWrt-${DEVICE_FRIENDLY}-${CONFIG_SUFFIX}-${TIMESTAMP}-${BASE_NAME#openwrt-*}"
+            cp "$f" "${{ env.OUTPUT_DIR }}/$BOOT_NAME"
+            echo "  📦 已保存: $BOOT_NAME"
+          done
+          
+          #  5. 生成校验和
           echo ""
           echo "🔐 生成 SHA256 校验和..."
-          find "${{ env.OUTPUT_DIR }}" -maxdepth 1 -type f \( -name "*.bin" -o -name "*.itb" \) -exec sha256sum {} + > "${{ env.OUTPUT_DIR }}/sha256sums.txt"
+          find "${{ env.OUTPUT_DIR }}" -maxdepth 1 -type f \( -name "*.bin" -o -name "*.itb" -o -name "*.ubi" \) -exec sha256sum {} + > "${{ env.OUTPUT_DIR }}/sha256sums.txt"
           cat "${{ env.OUTPUT_DIR }}/sha256sums.txt"
           
-          # 💾 备份配置
+          # 💾 6. 备份配置
           echo ""
-          echo " 备份配置文件..."
+          echo "💾 备份配置文件..."
           cp ${{ env.WORK_DIR }}/.config "${{ env.OUTPUT_DIR }}/build.config"
           echo "✅ 已备份: build.config"
           
-          # 📦 打包插件（兼容 .ipk 和 .apk）
+          #  7. 打包插件（兼容 .ipk 和 .apk）
           if [ -d "bin/packages" ]; then
             echo ""
             echo "📦 打包插件文件..."
@@ -610,16 +660,29 @@ jobs:
             echo "  打包完成: packages.tar.gz ($PKG_SIZE)"
           fi
           
+          # 🏷️ 导出变量供 Release 步骤使用
+          echo "FIRMWARE_NAME=$NEW_NAME" >> $GITHUB_ENV
+          echo "RELEASE_TAG=OpenWrt-${DEVICE_FRIENDLY}-${CONFIG_SUFFIX}-${TIMESTAMP}" >> $GITHUB_ENV
+          echo "RELEASE_NAME=OpenWrt ${DEVICE_DISPLAY} ${CONFIG_SUFFIX^^} $(date +"%Y-%m-%d")" >> $GITHUB_ENV
           echo "FIRMWARE_PATH=${{ env.OUTPUT_DIR }}" >> $GITHUB_ENV
+          
           echo ""
           echo "=========================================="
           echo "✅ 固件整理完成！"
           echo "=========================================="
           echo ""
-          echo "📦 输出文件列表:"
+          echo " 输出文件列表:"
           ls -lh ${{ env.OUTPUT_DIR }}/
           echo ""
-          echo "🎉 下一步将自动发布到 Release"
+          echo "🏷️  Release 信息预览:"
+          echo "  Tag:  $RELEASE_TAG"
+          echo "  Name: $RELEASE_NAME"
+          echo ""
+          echo "📋 固件说明:"
+          echo "  • sysupgrade: 常规升级固件（保留配置）"
+          echo "  • initramfs:  恢复固件（首次刷入/救砖）"
+          echo "  • factory:    工厂固件（从官方固件刷入）"
+          echo "  • preloader:  引导加载器（高级用户）"
       
       # 📤 步骤 10: 上传 Artifact
       - name:  上传固件到 Artifact
@@ -630,39 +693,106 @@ jobs:
           path: ${{ env.OUTPUT_DIR }}/*
           retention-days: 7
       
-      # 🚀 步骤 11: 发布 Release
+      # 🚀 步骤 11: 发布固件到 Release
       - name: 🚀 发布固件到 Release
         if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
         uses: ncipollo/release-action@v1
         with:
-          name: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
-          tag: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
+          # ✅ 使用动态生成的唯一 tag（含时间戳，避免冲突）
+          tag: ${{ env.RELEASE_TAG }}
+          # ✅ 友好名称 + 允许覆盖同名 Release
+          name: ${{ env.RELEASE_NAME }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          allowUpdates: true
+          replacesArtifacts: true
           artifacts: |
-            ${{ env.OUTPUT_DIR }}/*
+            ${{ env.OUTPUT_DIR }}/*.bin
+            ${{ env.OUTPUT_DIR }}/*.itb
+            ${{ env.OUTPUT_DIR }}/*.ubi
+            ${{ env.OUTPUT_DIR }}/sha256sums.txt
+            ${{ env.OUTPUT_DIR }}/build.config
+            ${{ env.OUTPUT_DIR }}/packages.tar.gz
           body: |
             ### 📒 固件信息
             | 项目 | 值 |
             |------|-----|
-            | 💻 平台 | ${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }} |
-            | 📂 源码 | [openwrt/openwrt](${{ env.REPO_URL }}) |
-            | 🌳 分支 | ${{ env.REPO_BRANCH }} |
-            | 🕐 编译时间 | ${{ env.COMPILE_DATE }} |
+            | 💻 机型 | ${{ env.DEVICE_DISPLAY }} |
+            | 📦 配置 | ${{ env.CONFIG_VERSION }} |
+            |  编译时间 | ${{ env.COMPILE_DATE }} |
             | 🔤 汉化 | ${{ env.ENABLE_TRANSLATE }} |
+            | ️  Tag | `${{ env.RELEASE_TAG }}` |
+            
+            ### 📦 固件文件说明
+            
+            #### 1️⃣ **sysupgrade** 固件（常规升级）
+            - 文件名: `OpenWrt-${{ env.DEVICE == 'xdr6088' && 'tplink-xdr6088' || env.DEVICE == 'ax6000' && 'redmi-ax6000' || env.DEVICE }}-${{ env.CONFIG_VERSION }}-*-sysupgrade.*`
+            - 用途: 已安装 OpenWrt 的设备升级（保留配置）
+            - 刷写命令: `sysupgrade -n firmware.bin`（不保留配置）
+            
+            #### 2️⃣ **initramfs** 恢复固件（首次刷入）
+            - 文件名: `OpenWrt-${{ env.DEVICE == 'xdr6088' && 'tplink-xdr6088' || env.DEVICE == 'ax6000' && 'redmi-ax6000' || env.DEVICE }}-${{ env.CONFIG_VERSION }}-*-initramfs-recovery.*`
+            - 用途: 首次刷入 OpenWrt / 系统救砖
+            - 刷写方法:
+              - **方法1**: 从 U-Boot/BREEZE 恢复模式 TFTP 加载
+              - **方法2**: SSH 登录临时系统后执行 `sysupgrade` 刷入正式固件
+            
+            #### 3️⃣ **factory** 工厂固件（官方→OpenWrt）
+            - 文件名: `OpenWrt-${{ env.DEVICE == 'xdr6088' && 'tplink-xdr6088' || env.DEVICE == 'ax6000' && 'redmi-ax6000' || env.DEVICE }}-${{ env.CONFIG_VERSION }}-*-factory.*`
+            - 用途: 从官方原厂固件直接刷入 OpenWrt
+            - 刷写方法: 在官方固件管理界面上传 factory 固件
+            
+            #### 4️⃣ **preloader/uboot** 引导文件（高级用户）
+            - 文件名: `OpenWrt-*-*-nor-preloader.bin`, `OpenWrt-*-*-snand-bl31-uboot.fip` 等
+            - 用途: 刷写 Bootloader（仅限高级用户，刷错可能变砖！）
             
             ### 🔧 默认配置
             - 🌐 管理地址: `192.168.1.1`
             - 👤 用户名: `root`
             - 🔒 密码: **首次登录强制修改**
-            - 📶 WiFi: 前缀`${{ env.DEVICE == 'xdr6088' && 'TP-LINK_' || 'OpenWrt_' }}` + MAC_2G/5G
+            - 📶 WiFi: 前缀`${{ env.DEVICE == 'xdr6088' && 'TP-LINK_' || env.DEVICE == 'ax6000' && 'Redmi_' || 'OpenWrt_' }}` + MAC_2G/5G
+            - 🔑 WiFi密码: `1234567890`
+            
+            ### 📥 刷机流程建议
+            
+            #### 首次刷入（从官方固件）:
+            ```bash
+            # 方案 A: 使用 factory 固件（推荐）
+            1. 登录官方固件管理界面
+            2. 上传 factory 固件
+            3. 等待重启，登录 192.168.1.1
+            
+            # 方案 B: 使用 initramfs 恢复固件
+            1. 进入 U-Boot/BREEZE 恢复模式
+            2. TFTP 加载 initramfs 固件
+            3. 系统启动后，SSH 登录 192.168.1.1
+            4. 上传 sysupgrade 固件执行正式刷写
+            ```
+            
+            #### 升级 OpenWrt（已安装）:
+            ```bash
+            # 方案 A: Web 界面升级（保留配置）
+            1. 登录 LuCI 界面 → 系统 → 备份/升级固件
+            2. 上传 sysupgrade 固件
+            
+            # 方案 B: SSH 命令行升级
+            1. SSH 登录路由器
+            2. 执行: sysupgrade -n /tmp/firmware.bin
+            ```
             
             ### ⚠️ 注意事项
-            1. 首次刷写建议: `sysupgrade -n firmware.bin`
-            2. 固件校验: `sha256sum -c sha256sums.txt`
-            3. 配置文件备份: `build.config`
+            1. **首次刷写建议**: 使用 `sysupgrade -n firmware.bin`（不保留配置）
+            2. **固件校验**: `sha256sum -c sha256sums.txt`
+            3. **配置文件备份**: `build.config`
+            4. **同名 Release**: 会自动覆盖更新（`allowUpdates: true`）
+            5. **救砖方法**: 使用 initramfs 固件从 U-Boot 恢复
+            
+            ### 📚 文档链接
+            - [OpenWrt 官方文档](https://openwrt.org)
+            - [设备刷机教程](https://github.com/CN2015/OpenWrt-Github-Actions/wiki)
+            - [问题反馈](https://github.com/CN2015/OpenWrt-Github-Actions/issues)
       
       # 📝 步骤 12: 上传日志
-      - name: 📝 上传编译日志
+      - name:  上传编译日志
         if: always()
         uses: actions/upload-artifact@v4
         with:
