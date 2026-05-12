@@ -18,7 +18,7 @@ on:
         required: true
         default: 'ax6000'
         type: choice
-        options: [xdr6088, ax6000, custom]
+        options: [xdr6088, ax6000, 360t7, custom]  # ✅ 添加 360t7
       config_version:
         description: '📦 配置版本'
         required: true
@@ -551,6 +551,7 @@ jobs:
           case "${{ env.DEVICE }}" in
             ax6000)  DEVICE_FRIENDLY="redmi-ax6000"; DEVICE_DISPLAY="Redmi AX6000" ;;
             xdr6088) DEVICE_FRIENDLY="tplink-xdr6088"; DEVICE_DISPLAY="TP-LINK XDR6088" ;;
+            360t7)   DEVICE_FRIENDLY="360t7"; DEVICE_DISPLAY="360T7" ;;  # ✅ 添加此行
             *)       DEVICE_FRIENDLY="${{ env.DEVICE }}"; DEVICE_DISPLAY="${{ env.DEVICE }}" ;;
           esac
           
@@ -749,7 +750,7 @@ jobs:
             - 🌐 管理地址: `192.168.1.1`
             - 👤 用户名: `root`
             - 🔒 密码: **首次登录强制修改**
-            - 📶 WiFi: 前缀`${{ env.DEVICE == 'xdr6088' && 'TP-LINK_' || env.DEVICE == 'ax6000' && 'Redmi_' || 'OpenWrt_' }}` + MAC_2G/5G
+            - 📶 WiFi: 前缀`${{ env.DEVICE == 'xdr6088' && 'TP-LINK_' || env.DEVICE == 'ax6000' && 'Redmi_' || env.DEVICE == '360t7' && '360T7_' || 'OpenWrt_' }}` + MAC_2G/5G
             - 🔑 WiFi密码: `1234567890`
             
             ### 📥 刷机流程建议
