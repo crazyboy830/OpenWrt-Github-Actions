@@ -4,16 +4,16 @@ _______                     ________        __
 |_______||   __|_____|__|__||________||__|  |____|
          |__| W I R E L E S S   F R E E D O M
 -----------------------------------------------------
-OpenWrt 官方定制固件 | 编译: 2026.5.10 | QQ:38663790
+OpenWrt 官方定制固件 | 编译: {{BUILD_DATE}} | QQ:38663790
 🔗 管理地址：192.168.1.1 | 用户：root | 密码：首次登录强制修改
-📶 WiFi: 前缀 + MAC_2G/5G | 密码：1234567890
+📶 WiFi: 前缀 {{WIFI_PREFIX}} + MAC_2G/5G | 密码：1234567890
 🔧 快速命令:
-  • 重启:        reboot
-  • 网络状态:    ifstatus wan
-  • WiFi 重启:   wifi reload
-  • 系统日志:    logread
-  • 插件管理:    opkg list-installed | grep luci
+• 重启:        reboot
+• 网络状态:    ifstatus wan
+• WiFi 重启:   wifi reload
+• 系统日志:    logread
+• 插件管理:    opkg list-installed | grep luci
 🌐 在线资源:
-  • 官方文档:    https://openwrt.org
-  • 问题反馈:    https://github.com/CN2015/OpenWrt-Github-Actions/wiki
+• 官方文档:    https://openwrt.org
+• 问题反馈:    https://github.com/CN2015/OpenWrt-Github-Actions/wiki
 -----------------------------------------------------
