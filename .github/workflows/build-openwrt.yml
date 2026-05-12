@@ -98,7 +98,7 @@ jobs:
           sudo -E apt -yqq autoclean
           sudo -E apt -yqq clean
           
-          # 📦 安装额外依赖
+          #  安装额外依赖
           sudo -E apt -yqq install dos2unix python3-netifaces libfuse-dev
           
           # 🌐 使用 immortalwrt 初始化脚本（兼容官方 OpenWrt）
@@ -116,7 +116,7 @@ jobs:
           df -h
       
       # 💾 步骤 2: 最大化磁盘空间
-      - name: 💾 合并磁盘空间
+      - name:  合并磁盘空间
         uses: easimon/maximize-build-space@master
         with:
           swap-size-mb: 2048
@@ -140,7 +140,7 @@ jobs:
           echo "FIRMWARE_TAG=$(date +"%Y%m%d")" >> $GITHUB_ENV
           echo "OPENWRT_PATH=${{ env.WORK_DIR }}" >> $GITHUB_ENV
           
-          # 📋 提取设备目标（使用绝对路径安全读取）
+          #  提取设备目标（使用绝对路径安全读取）
           CONFIG_PATH="${{ github.workspace }}/config/${{ env.DEVICE }}-${{ env.CONFIG_VERSION }}.config"
           if [ -f "$CONFIG_PATH" ]; then
             echo "DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD' "$CONFIG_PATH" | cut -d'"' -f2)" >> $GITHUB_ENV
@@ -157,7 +157,7 @@ jobs:
           prefix: ${{ env.WORK_DIR }}
       
       # ⚙️ 强制应用配置并校验
-      - name: ⚙️ Apply & Verify Configuration
+      - name: ️ Apply & Verify Configuration
         run: |
           cd ${{ env.WORK_DIR }}
           
@@ -177,13 +177,13 @@ jobs:
           
           # 3. 强制校验目标平台
           echo ""
-          echo "🔍 正在校验编译平台..."
+          echo " 正在校验编译平台..."
           TARGET_BOARD=$(grep '^CONFIG_TARGET_BOARD' .config | cut -d'"' -f2)
           TARGET_SUB=$(grep '^CONFIG_TARGET_SUBTARGET' .config | cut -d'"' -f2)
           TARGET_PROFILE=$(grep '^CONFIG_TARGET_PROFILE' .config | cut -d'"' -f2)
-          echo "   📡 平台架构: $TARGET_BOARD / $TARGET_SUB"
+          echo "    平台架构: $TARGET_BOARD / $TARGET_SUB"
           echo "   📦 设备型号: $TARGET_PROFILE"
-          echo "   📊 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
+          echo "    已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
           
           if [ "$TARGET_BOARD" != "mediatek" ]; then
             echo "⚠️  警告：当前配置平台为 [$TARGET_BOARD]，非预期的 mediatek！"
@@ -251,7 +251,7 @@ jobs:
             log_warn "diy/files 目录不存在，跳过预配置"
           fi
       
-      # 🔧 步骤 6: 执行自定义配置脚本
+      #  步骤 6: 执行自定义配置脚本
       - name: 🔧 执行自定义配置脚本
         run: |
           # 📁 切换到源码工作目录
@@ -263,7 +263,7 @@ jobs:
           # 🔍 安全检查：确保脚本存在
           if [ ! -f "$SCRIPT_PATH" ]; then
             echo "❌ 致命错误：找不到脚本 $SCRIPT_PATH"
-            echo "📋 当前工作区结构:"
+            echo " 当前工作区结构:"
             ls -la "${{ github.workspace }}/"
             exit 1
           fi
@@ -290,7 +290,7 @@ jobs:
             *)       export WIFI_PREFIX="OpenWrt_"; export DEVICE_NAME="OpenWrt" ;;
           esac
           
-          # 🚀 执行自定义脚本
+          #  执行自定义脚本
           echo "🚀 开始执行 diy-openwrt.sh ..."
           bash "$SCRIPT_PATH"
           
@@ -300,6 +300,23 @@ jobs:
           else
             echo "⚠️  警告：脚本执行后未生成 .config 文件"
           fi
+
+      # 🔧 步骤 6.3: 修复包依赖冲突（iwinfo/libiwinfo）
+      - name: 🔧 修复包依赖冲突
+        run: |
+          cd ${{ env.WORK_DIR }}
+          echo "🔧 修复 iwinfo/libiwinfo 依赖..."
+          
+          # 确保官方 libiwinfo 被正确安装
+          ./scripts/feeds install libiwinfo 2>/dev/null || true
+          
+          # 清理第三方源中的冲突包
+          rm -rf package/feeds/small/iwinfo package/feeds/small/libiwinfo 2>/dev/null || true
+          
+          # 重载配置
+          make defconfig >/dev/null 2>&1
+          
+          echo "✅ 依赖修复完成"
       
       # 🔧 步骤 6.5: 强制解决包冲突 + 清理缓存 (Error 255 拦截)
       - name: 🔧 强制解决包冲突 + 清理缓存
@@ -318,7 +335,7 @@ jobs:
             echo "✅ 已切断 vsftpd 冲突依赖链"
           fi
           
-          # 📦 2. 其他常见冲突对拦截
+          #  2. 其他常见冲突对拦截
           echo "🔍 扫描其他潜在冲突..."
           
           # dnsmasq 基础版 vs 完整版
@@ -341,7 +358,7 @@ jobs:
             sed -i 's/^CONFIG_PACKAGE_libustream-wolfssl=[ym]/# CONFIG_PACKAGE_libustream-wolfssl is not set/' .config
           fi
           
-          # 🧹 3. 深度清理 opkg 打包缓存（关键！）
+          #  3. 深度清理 opkg 打包缓存（关键！）
           echo "🧹 清理 opkg 打包缓存与临时索引..."
           
           # 获取目标架构（使用绝对路径安全读取）
@@ -364,7 +381,7 @@ jobs:
           
           # 📊 5. 验证修复结果
           echo ""
-          echo "📋 修复后配置摘要:"
+          echo " 修复后配置摘要:"
           echo "   • 已选插件: $(grep -c '^CONFIG_PACKAGE_.*=y' .config) 个"
           echo "   • vsftpd-alt: $(grep -c '^CONFIG_PACKAGE_vsftpd-alt=y' .config || echo 0) 个"
           echo "   • dnsmasq-full: $(grep -c '^CONFIG_PACKAGE_dnsmasq-full=y' .config || echo 0) 个"
@@ -373,7 +390,7 @@ jobs:
           echo "=========================================="
       
       # 📥 步骤 7: 下载软件包
-      - name: 📥 下载软件包
+      - name:  下载软件包
         run: |
           cd ${{ env.WORK_DIR }}
           echo "🔄 执行 make download..."
@@ -397,7 +414,7 @@ jobs:
           echo "=========================================="
           echo "📅 时间: $(date '+%Y-%m-%d %H:%M:%S')"
           echo "💻 设备: ${{ env.DEVICE }}"
-          echo "🔧 线程: $(nproc)"
+          echo " 线程: $(nproc)"
           echo "📁 工作目录: $(pwd)"
           echo "=========================================="
           
@@ -444,7 +461,7 @@ jobs:
             echo "⚠️  编译退出码: $MAKE_EXIT"
             echo ""
             
-            # 🔍 尝试智能修复
+            #  尝试智能修复
             if grep -q "Error 255\|check_data_file_clashes\|opkg_install_cmd.*Cannot install" "$LOG_FILE"; then
               echo "🔧 检测到包冲突，尝试自动解决..."
               CONFLICT_PKG=$(grep -oP "check_data_file_clashes: Package \K\S+" "$LOG_FILE" | head -1)
@@ -482,31 +499,22 @@ jobs:
           echo "⏱️  总耗时: $((DURATION/3600))h $((DURATION%3600/60))m $((DURATION%60))s"
           echo ""
           
-          # 🔍 搜索固件文件
+          #  搜索固件文件
           echo "🔍 搜索生成的固件文件..."
-          FIRMWARE_COUNT=$(find bin/targets -name "*.bin" -type f 2>/dev/null | wc -l)
+          # ✅ 兼容 .bin 和 .itb 格式
+          FIRMWARE_COUNT=$(find bin/targets -name "*sysupgrade*" -type f \( -name "*.bin" -o -name "*.itb" \) 2>/dev/null | wc -l)
           echo "📦 找到固件文件数量: $FIRMWARE_COUNT"
           
           if [ "$FIRMWARE_COUNT" -gt 0 ]; then
             echo ""
             echo "✅ 固件文件列表:"
-            find bin/targets -name "*.bin" -type f -exec ls -lh {} \; 2>/dev/null | head -10
+            find bin/targets -name "*sysupgrade*" -type f \( -name "*.bin" -o -name "*.itb" \) 2>/dev/null -exec ls -lh {} \; | head -10
             echo ""
-            
-            # 📋 显示 sysupgrade.bin
-            echo "🎯 sysupgrade.bin 固件:"
-            find bin/targets -name "*sysupgrade.bin" -type f 2>/dev/null | while read -r fw; do
-              ls -lh "$fw"
-              sha256sum "$fw" | cut -d' ' -f1
-            done
           else
             echo ""
-            echo "⚠️  警告：未找到 .bin 固件文件"
-            echo "📋 检查 bin/targets 目录结构:"
+            echo "⚠️  警告：未找到 sysupgrade 固件文件"
+            echo " 检查 bin/targets 目录结构:"
             ls -la bin/targets/ 2>/dev/null || echo "❌ bin/targets 目录不存在"
-            echo ""
-            echo "📋 bin 目录内容:"
-            ls -la bin/ 2>/dev/null | head -20
           fi
           
           echo ""
@@ -530,7 +538,7 @@ jobs:
             exit 1
           fi
       
-      # 🗂️ 步骤 9: 整理固件文件（🔍 增强调试版）
+      # 🗂️ 步骤 9: 整理固件文件（🔍 增强调试版 + 兼容 .itb/.apk 格式）
       - name: 🗂️ 整理固件文件
         if: steps.compile.outputs.status == 'success'
         run: |
@@ -539,40 +547,37 @@ jobs:
           echo "🗂️  开始整理固件文件"
           echo "=========================================="
           
-          # 🔍 详细搜索固件
+          #  详细搜索固件
           echo ""
-          echo "🔍 搜索所有 .bin 文件..."
-          find bin/targets -name "*.bin" -type f 2>/dev/null | while read -r f; do
+          echo "🔍 搜索所有 sysupgrade 固件..."
+          find bin/targets -name "*sysupgrade*" -type f 2>/dev/null | while read -r f; do
             SIZE=$(ls -lh "$f" | awk '{print $5}')
             echo "  📦 $f ($SIZE)"
           done
           echo ""
           
-          echo "🎯 查找 sysupgrade.bin..."
-          FIRMWARE_PATH=$(find bin/targets -name "*sysupgrade.bin" -type f 2>/dev/null | head -1)
+          echo "🎯 查找 sysupgrade 固件 (.bin 或 .itb)..."
+          # ✅ 修复：兼容新版 OpenWrt 的 .itb (FIT) 格式
+          FIRMWARE_PATH=$(find bin/targets -name "*sysupgrade*" -type f 2>/dev/null | grep -E '\.(bin|itb)$' | head -1)
           
           if [ -z "$FIRMWARE_PATH" ]; then
-            echo "❌ 错误：未找到 sysupgrade.bin"
+            echo "❌ 错误：未找到 sysupgrade 固件"
             echo ""
             echo "📋 bin/targets 目录结构:"
             ls -laR bin/targets/ 2>/dev/null | head -50
-            echo ""
-            echo "⚠️  可能原因："
-            echo "  1. 配置文件未启用固件生成"
-            echo "  2. 目标平台选择错误"
-            echo "  3. 编译过程被中断"
             exit 1
           fi
           
           echo "✅ 找到固件: $FIRMWARE_PATH"
           ls -lh "$FIRMWARE_PATH"
           
-          # 📁 创建输出目录
+          #  创建输出目录
           mkdir -p ${{ env.OUTPUT_DIR }}
           
-          # 🔧 重命名固件
-          FIRMWARE_BASE=$(basename "$FIRMWARE_PATH" .bin)
-          NEW_NAME="OpenWrt-${{ env.DEVICE }}-$(date +"%Y%m%d")-${FIRMWARE_BASE#*-}.bin"
+          #  动态提取后缀并重命名固件
+          FIRMWARE_EXT="${FIRMWARE_PATH##*.}"
+          FIRMWARE_BASE=$(basename "$FIRMWARE_PATH" .$FIRMWARE_EXT)
+          NEW_NAME="OpenWrt-${{ env.DEVICE }}-$(date +"%Y%m%d")-${FIRMWARE_BASE#*-}.${FIRMWARE_EXT}"
           echo ""
           echo "📝 重命名固件..."
           echo "  原名: $(basename "$FIRMWARE_PATH")"
@@ -580,26 +585,26 @@ jobs:
           cp "$FIRMWARE_PATH" "${{ env.OUTPUT_DIR }}/$NEW_NAME"
           echo "FIRMWARE_NAME=$NEW_NAME" >> $GITHUB_ENV
           
-          # 📋 生成校验和
+          #  生成校验和 (兼容 .bin 和 .itb)
           echo ""
           echo "🔐 生成 SHA256 校验和..."
-          sha256sum "${{ env.OUTPUT_DIR }}"/*.bin > "${{ env.OUTPUT_DIR }}/sha256sums.txt"
+          find "${{ env.OUTPUT_DIR }}" -maxdepth 1 -type f \( -name "*.bin" -o -name "*.itb" \) -exec sha256sum {} + > "${{ env.OUTPUT_DIR }}/sha256sums.txt"
           cat "${{ env.OUTPUT_DIR }}/sha256sums.txt"
           
           # 💾 备份配置
           echo ""
-          echo "💾 备份配置文件..."
+          echo " 备份配置文件..."
           cp ${{ env.WORK_DIR }}/.config "${{ env.OUTPUT_DIR }}/build.config"
           echo "✅ 已备份: build.config"
           
-          # 📦 打包 IPK（可选）
+          # 📦 打包插件（兼容 .ipk 和 .apk）
           if [ -d "bin/packages" ]; then
             echo ""
-            echo "📦 打包 IPK 插件..."
+            echo "📦 打包插件文件..."
             mkdir -p "${{ env.OUTPUT_DIR }}/packages"
-            IPK_COUNT=$(find bin/packages -name "*.ipk" -type f 2>/dev/null | wc -l)
-            echo "  找到 IPK 文件: $IPK_COUNT 个"
-            find bin/packages -name "*.ipk" -exec cp {} "${{ env.OUTPUT_DIR }}/packages/" \; 2>/dev/null || true
+            PKG_COUNT=$(find bin/packages -type f \( -name "*.ipk" -o -name "*.apk" \) 2>/dev/null | wc -l)
+            echo "  找到包文件: $PKG_COUNT 个"
+            find bin/packages -type f \( -name "*.ipk" -o -name "*.apk" \) -exec cp {} "${{ env.OUTPUT_DIR }}/packages/" \; 2>/dev/null || true
             tar -czf "${{ env.OUTPUT_DIR }}/packages.tar.gz" -C "${{ env.OUTPUT_DIR }}" packages
             PKG_SIZE=$(ls -lh "${{ env.OUTPUT_DIR }}/packages.tar.gz" | awk '{print $5}')
             echo "  打包完成: packages.tar.gz ($PKG_SIZE)"
@@ -617,7 +622,7 @@ jobs:
           echo "🎉 下一步将自动发布到 Release"
       
       # 📤 步骤 10: 上传 Artifact
-      - name: 📤 上传固件到 Artifact
+      - name:  上传固件到 Artifact
         if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -634,9 +639,7 @@ jobs:
           tag: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: |
-            ${{ env.OUTPUT_DIR }}/*.bin
-            ${{ env.OUTPUT_DIR }}/sha256sums.txt
-            ${{ env.OUTPUT_DIR }}/build.config
+            ${{ env.OUTPUT_DIR }}/*
           body: |
             ### 📒 固件信息
             | 项目 | 值 |
