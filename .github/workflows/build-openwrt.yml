@@ -690,8 +690,8 @@ jobs:
         uses: actions/upload-artifact@v4
         if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
+          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE }}
       
       # 🚀 步骤 11: 发布固件到 Release
       - name: 🚀 发布固件到 Release
