@@ -687,7 +687,7 @@ jobs:
       
       # 📤 步骤 10: 上传 Artifact
       - name:  上传固件到 Artifact
-         uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       with:
         name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
