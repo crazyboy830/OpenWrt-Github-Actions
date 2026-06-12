@@ -18,7 +18,7 @@ on:
         required: true
         default: 'ax6000'
         type: choice
-        options: [xdr6088, ax6000, 360t7, custom]  # ✅ 添加 360t7
+        options: [xdr6088, ax6000] 
       config_version:
         description: '📦 配置版本'
         required: true
