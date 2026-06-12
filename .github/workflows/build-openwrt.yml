@@ -660,138 +660,43 @@ jobs:
             PKG_SIZE=$(ls -lh "${{ env.OUTPUT_DIR }}/packages.tar.gz" | awk '{print $5}')
             echo "  打包完成: packages.tar.gz ($PKG_SIZE)"
           fi
-          
-          # 🏷️ 导出变量供 Release 步骤使用
-          echo "FIRMWARE_NAME=$NEW_NAME" >> $GITHUB_ENV
-          echo "RELEASE_TAG=OpenWrt-${DEVICE_FRIENDLY}-${CONFIG_SUFFIX}-${TIMESTAMP}" >> $GITHUB_ENV
-          echo "RELEASE_NAME=OpenWrt ${DEVICE_DISPLAY} ${CONFIG_SUFFIX^^} $(date +"%Y-%m-%d")" >> $GITHUB_ENV
-          echo "FIRMWARE_PATH=${{ env.OUTPUT_DIR }}" >> $GITHUB_ENV
-          
-          echo ""
-          echo "=========================================="
-          echo "✅ 固件整理完成！"
-          echo "=========================================="
-          echo ""
-          echo " 输出文件列表:"
-          ls -lh ${{ env.OUTPUT_DIR }}/
-          echo ""
-          echo "🏷️  Release 信息预览:"
-          echo "  Tag:  $RELEASE_TAG"
-          echo "  Name: $RELEASE_NAME"
-          echo ""
-          echo "📋 固件说明:"
-          echo "  • sysupgrade: 常规升级固件（保留配置）"
-          echo "  • initramfs:  恢复固件（首次刷入/救砖）"
-          echo "  • factory:    工厂固件（从官方固件刷入）"
-          echo "  • preloader:  引导加载器（高级用户）"
-      
-      # 📤 步骤 10: 上传 Artifact
-      - name:  上传固件到 Artifact
-        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
+
+        
+      - name: 上传 Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt-${{ env.DEVICE }}-${{ env.FIRMWARE_TAG }}
-          path: ${{ env.OUTPUT_DIR }}/*
+          name: ImmortalWrt-AX6000-${{ github.run_id }}
+          path: openwrt/bin/targets/mediatek/filogic/*
           retention-days: 7
-      
-      # 🚀 步骤 11: 发布固件到 Release
-      - name: 🚀 发布固件到 Release
-        if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
-        uses: ncipollo/release-action@v1
+
+      - name: 生成 Release 信息
+        id: release_info
+        if: env.UPLOAD_RELEASE == 'true'
+        run: |
+          DATE=$(date +'%Y%m%d-%H%M')
+          echo "tag=ax6000-$DATE" >> $GITHUB_OUTPUT
+          echo "name=Redmi AX6000 ImmortalWrt 24.10-6.6 $DATE" >> $GITHUB_OUTPUT
+          
+          cat > release_body.txt << EOF
+          **Redmi AX6000 ImmortalWrt 自动构建**
+
+          - 仓库：${{ env.REPO_URL }}
+          - 分支：${{ env.REPO_BRANCH }}
+          - 内核：Linux 6.6
+          - 构建时间：$DATE
+          - 触发者：${{ github.actor }}
+          EOF
+
+      - name: 发布到 GitHub Release
+        if: env.UPLOAD_RELEASE == 'true'
+        uses: softprops/action-gh-release@v2
         with:
-          # ✅ 使用动态生成的唯一 tag（含时间戳，避免冲突）
-          tag: ${{ env.RELEASE_TAG }}
-          # ✅ 友好名称 + 允许覆盖同名 Release
-          name: ${{ env.RELEASE_NAME }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          allowUpdates: true
-          replacesArtifacts: true
-          artifacts: |
-            ${{ env.OUTPUT_DIR }}/*.bin
-            ${{ env.OUTPUT_DIR }}/*.itb
-            ${{ env.OUTPUT_DIR }}/*.ubi
-            ${{ env.OUTPUT_DIR }}/sha256sums.txt
-            ${{ env.OUTPUT_DIR }}/build.config
-            ${{ env.OUTPUT_DIR }}/packages.tar.gz
-          body: |
-            ### 📒 固件信息
-            | 项目 | 值 |
-            |------|-----|
-            | 💻 机型 | ${{ env.DEVICE_DISPLAY }} |
-            | 📦 配置 | ${{ env.CONFIG_VERSION }} |
-            |  编译时间 | ${{ env.COMPILE_DATE }} |
-            | 🔤 汉化 | ${{ env.ENABLE_TRANSLATE }} |
-            | ️  Tag | `${{ env.RELEASE_TAG }}` |
-            
-            ### 📦 固件文件说明
-            
-            #### 1️⃣ **sysupgrade** 固件（常规升级）
-            - 文件名: `OpenWrt-${{ env.DEVICE == 'xdr6088' && 'tplink-xdr6088' || env.DEVICE == 'ax6000' && 'redmi-ax6000' || env.DEVICE }}-${{ env.CONFIG_VERSION }}-*-sysupgrade.*`
-            - 用途: 已安装 OpenWrt 的设备升级（保留配置）
-            - 刷写命令: `sysupgrade -n firmware.bin`（不保留配置）
-            
-            #### 2️⃣ **initramfs** 恢复固件（首次刷入）
-            - 文件名: `OpenWrt-${{ env.DEVICE == 'xdr6088' && 'tplink-xdr6088' || env.DEVICE == 'ax6000' && 'redmi-ax6000' || env.DEVICE }}-${{ env.CONFIG_VERSION }}-*-initramfs-recovery.*`
-            - 用途: 首次刷入 OpenWrt / 系统救砖
-            - 刷写方法:
-              - **方法1**: 从 U-Boot/BREEZE 恢复模式 TFTP 加载
-              - **方法2**: SSH 登录临时系统后执行 `sysupgrade` 刷入正式固件
-            
-            #### 3️⃣ **factory** 工厂固件（官方→OpenWrt）
-            - 文件名: `OpenWrt-${{ env.DEVICE == 'xdr6088' && 'tplink-xdr6088' || env.DEVICE == 'ax6000' && 'redmi-ax6000' || env.DEVICE }}-${{ env.CONFIG_VERSION }}-*-factory.*`
-            - 用途: 从官方原厂固件直接刷入 OpenWrt
-            - 刷写方法: 在官方固件管理界面上传 factory 固件
-            
-            #### 4️⃣ **preloader/uboot** 引导文件（高级用户）
-            - 文件名: `OpenWrt-*-*-nor-preloader.bin`, `OpenWrt-*-*-snand-bl31-uboot.fip` 等
-            - 用途: 刷写 Bootloader（仅限高级用户，刷错可能变砖！）
-            
-            ### 🔧 默认配置
-            - 🌐 管理地址: `192.168.1.1`
-            - 👤 用户名: `root`
-            - 🔒 密码: **首次登录强制修改**
-            - 📶 WiFi: 前缀`${{ env.DEVICE == 'xdr6088' && 'TP-LINK_' || env.DEVICE == 'ax6000' && 'Redmi_' || env.DEVICE == '360t7' && '360T7_' || 'OpenWrt_' }}` + MAC_2G/5G
-            - 🔑 WiFi密码: `1234567890`
-            
-            ### 📥 刷机流程建议
-            
-            #### 首次刷入（从官方固件）:
-            ```bash
-            # 方案 A: 使用 factory 固件（推荐）
-            1. 登录官方固件管理界面
-            2. 上传 factory 固件
-            3. 等待重启，登录 192.168.1.1
-            
-            # 方案 B: 使用 initramfs 恢复固件
-            1. 进入 U-Boot/BREEZE 恢复模式
-            2. TFTP 加载 initramfs 固件
-            3. 系统启动后，SSH 登录 192.168.1.1
-            4. 上传 sysupgrade 固件执行正式刷写
-            ```
-            
-            #### 升级 OpenWrt（已安装）:
-            ```bash
-            # 方案 A: Web 界面升级（保留配置）
-            1. 登录 LuCI 界面 → 系统 → 备份/升级固件
-            2. 上传 sysupgrade 固件
-            
-            # 方案 B: SSH 命令行升级
-            1. SSH 登录路由器
-            2. 执行: sysupgrade -n /tmp/firmware.bin
-            ```
-            
-            ### ⚠️ 注意事项
-            1. **首次刷写建议**: 使用 `sysupgrade -n firmware.bin`（不保留配置）
-            2. **固件校验**: `sha256sum -c sha256sums.txt`
-            3. **配置文件备份**: `build.config`
-            4. **同名 Release**: 会自动覆盖更新（`allowUpdates: true`）
-            5. **救砖方法**: 使用 initramfs 固件从 U-Boot 恢复
-            
-            ### 📚 文档链接
-            - [OpenWrt 官方文档](https://openwrt.org)
-            - [设备刷机教程](https://github.com/CN2015/OpenWrt-Github-Actions/wiki)
-            - [问题反馈](https://github.com/CN2015/OpenWrt-Github-Actions/issues)
-      
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: ${{ steps.release_info.outputs.name }}
+          body_path: release_body.txt
+          files: openwrt/bin/targets/mediatek/filogic/*
+          draft: false
+          prerelease: false
       # 📝 步骤 12: 上传日志
       - name:  上传编译日志
         if: always()
